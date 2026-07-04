@@ -1,0 +1,34 @@
+# Production Configuration for Bare-Metal Core Relay (`chronosd`)
+# CHRONOS-SPEC-v7.0 Section 3.1 & 5.1
+
+[node]
+node_name = "equinix-london-relay-01"
+node_id_fp = "7z9k2m4x8v1w3y5z6a0b.chr"
+operating_role = "core_relay" # Options: "guard", "core_relay", "egress_gateway"
+jurisdiction = "GB (United Kingdom)"
+
+[data_plane]
+interface = "eth0"
+auto_negotiate_driver = true
+# Tier 1: af_xdp_zero_copy (Bare-metal Intel/Mellanox)
+# Tier 2: io_uring_sqpoll (AWS EC2 ENA / virtio-net)
+preferred_engine = "af_xdp_zero_copy"
+umem_pool_size_mb = 64
+hugepage_alignment_kb = 4
+
+[hardware_hardening]
+enable_resctrl_l3_locking = true
+l3_cache_slice_mb = 4.0
+enable_toeplitz_salt_shuffling = true
+toeplitz_rss_threshold_req_sec = 31250
+
+[security]
+enable_pow_client_puzzles = true
+pow_default_difficulty_zero_bits = 16
+pow_ddos_flood_difficulty_zero_bits = 24
+cuckoo_sram_allocation_mb = 2.0
+enable_stateless_quic_retry_cookies = true
+
+[key_ratchet]
+volume_trigger_datagrams = 65536 # ~83.8 MB
+temporal_trigger_seconds = 60.0
