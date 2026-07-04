@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Daemon initialized successfully. Entering active TDM event loop.");
 
     // Simulate 3 iterations of monitoring & sorting
-    let mut simulated_umem_pool = vec![UmemFrameDescriptor::new(); 64];
+    let mut simulated_umem_pool = std::array::from_fn(|_| UmemFrameDescriptor::new()).to_vec();
     for epoch in 1..=3 {
         tokio::time::sleep(Duration::from_millis(100)).await;
         info!("Epoch #{:02} active | Pacing: 81.92 ns TDM | Wire Budget: 1,280B | Saturation: 100%", epoch);
