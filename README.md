@@ -1,4 +1,4 @@
-# ⚡ CHRONOS Monorepo: The Oblivious Swarm Fabric ⚡
+#  CHRONOS Monorepo: The Oblivious Swarm Fabric
 ## Definitive Real-World Production Implementation of CHRONOS v7.0
 
 **Specification:** RFC-2026-CHRONOS-v7.0 (Level 14 Master Systems Edition)  
@@ -7,7 +7,7 @@
 
 ---
 
-## 📖 Project Overview
+##  Project Overview
 
 **CHRONOS v7.0** is a clean-slate, low-latency, multipath anonymous communication network engineered from the ground up to operate **100% purely in software over existing public internet infrastructure** (TCP/UDP/QUIC over standard optical fiber and cellular wireless networks).
 
@@ -21,7 +21,7 @@ By discarding all custom ASICs, satellite laser networks, hardware secure enclav
 
 ---
 
-## 🗂️ Monorepo Directory Structure
+##  Monorepo Directory Structure
 
 ```
 chronos/
@@ -44,7 +44,7 @@ chronos/
 
 ---
 
-## 🚀 Getting Started & Verification Suites
+##  Getting Started & Verification Suites
 
 While full bare-metal compilation requires specialized Linux network drivers (`libbpf`, `af_xdp`), the entire mathematical, cryptographic, and systems architecture has been empirically verified via our standalone Python simulation suites in the workspace root:
 
@@ -68,7 +68,7 @@ While full bare-metal compilation requires specialized Linux network drivers (`l
 
 ---
 
-## 🌐 Launching the Web Application Dashboard
+## Launching the Web Application Dashboard
 
 To experience the client runtime and interactive testbed in your browser:
 1. Open **`chronos/apps/chronos-web/index.html`** directly in your file viewer or web browser.
