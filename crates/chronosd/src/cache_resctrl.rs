@@ -1,7 +1,7 @@
 //! Hardware L3 Cache Allocation Locking (`resctrl` / Intel RDT / AMD Platform QoS).
 //! CHRONOS-SPEC-v7.0 Section 5.2
 
-use log::{info, error};
+use log::{error, info};
 use std::fs;
 use std::path::Path;
 
@@ -21,19 +21,25 @@ impl L3CacheLocker {
     /// Explicitly partition and lock a dedicated L3 cache slice exclusively to the mixing thread.
     pub fn lock_to_current_thread(&self) -> Result<(), String> {
         info!("Engaging Silicon Cache Allocation Technology (CAT) via resctrl...");
-        info!("Targeting {} MB dedicated L3 cache slice for mixing thread isolation.", self.slice_mb);
+        info!(
+            "Targeting {} MB dedicated L3 cache slice for mixing thread isolation.",
+            self.slice_mb
+        );
 
         let resctrl_base = Path::new("/sys/fs/resctrl");
         if !resctrl_base.exists() {
-            return Err("resctrl filesystem not mounted. Ensure kernel supports Intel RDT / AMD QoS.".to_string());
+            return Err(
+                "resctrl filesystem not mounted. Ensure kernel supports Intel RDT / AMD QoS."
+                    .to_string(),
+            );
         }
 
         // Create dedicated Class of Service (CLOS) directory for chronos relay
-        if !Path::new(&self.resctrl_path).exists() {
-            if let Err(e) = fs::create_dir(&self.resctrl_path) {
-                error!("Failed to create resctrl CLOS directory: {}", e);
-                return Err(format!("resctrl create_dir failed: {}", e));
-            }
+        if !Path::new(&self.resctrl_path).exists()
+            && let Err(e) = fs::create_dir(&self.resctrl_path)
+        {
+            error!("Failed to create resctrl CLOS directory: {}", e);
+            return Err(format!("resctrl create_dir failed: {}", e));
         }
 
         // Write bitmask locking L3 cache slice (e.g., 0xf0 represents dedicated ways)
@@ -52,8 +58,13 @@ impl L3CacheLocker {
             return Err(format!("resctrl tasks write failed: {}", e));
         }
 
-        info!("SUCCESS: PID {} locked to dedicated L3 cache slice via {}.", pid, self.resctrl_path);
-        info!("Cross-VM Prime+Probe timing side-channels mathematically blocked at memory controller!");
+        info!(
+            "SUCCESS: PID {} locked to dedicated L3 cache slice via {}.",
+            pid, self.resctrl_path
+        );
+        info!(
+            "Cross-VM Prime+Probe timing side-channels mathematically blocked at memory controller!"
+        );
         Ok(())
     }
 }

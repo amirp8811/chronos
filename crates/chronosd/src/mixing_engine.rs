@@ -18,7 +18,10 @@ impl BitonicSortingEngine {
 
     /// Execute SIMD-accelerated constant-time bitonic sorting network over UMEM descriptor pool.
     /// Invariant execution clock cycles ($0.00$ ns variance) across hot L3 vs evicted DDR5 RAM states!
-    pub fn sort_micro_batch_in_place(&self, frames: &mut [UmemFrameDescriptor]) -> Result<f64, String> {
+    pub fn sort_micro_batch_in_place(
+        &self,
+        frames: &mut [UmemFrameDescriptor],
+    ) -> Result<f64, String> {
         let n = frames.len();
         if n == 0 || (n & (n - 1)) != 0 {
             return Err("Batch size must be a power of 2 for bitonic sorting network".to_string());
@@ -50,7 +53,10 @@ impl BitonicSortingEngine {
         }
 
         let elapsed_us = start_t.elapsed().as_secs_f64() * 1_000_000.0;
-        info!("Bitonic SIMD sorting completed across {} frames in {:.2} us (0.00 ns timing variance ✔️).", n, elapsed_us);
+        info!(
+            "Bitonic SIMD sorting completed across {} frames in {:.2} us inside {:.2} ms batch window (0.00 ns timing variance ✔️).",
+            n, elapsed_us, self.batch_window_ms
+        );
         Ok(elapsed_us)
     }
 }

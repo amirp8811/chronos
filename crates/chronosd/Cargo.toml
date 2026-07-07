@@ -1,13 +1,11 @@
 [package]
 name = "chronosd"
 version = "7.0.0"
-edition = "2021"
+edition = "2024"
 authors = ["Clean-Slate Anonymous Networking Working Group"]
 description = "Core bare-metal relay daemon for CHRONOS v7.0 (AF_XDP, io_uring, resctrl L3 locking)"
 
 [dependencies]
 chronos-core = { path = "../chronos-core" }
-tokio = { version = "1.37", features = ["full"] }
+tokio = { version = "1.37", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 log = "0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"

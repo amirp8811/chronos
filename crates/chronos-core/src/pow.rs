@@ -1,9 +1,9 @@
 //! 2-Stage Adaptive Cuckoo SRAM & Stateless QUIC Retry Cookies.
 //! CHRONOS-SPEC-v7.0 Section 1.2
 
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
 /// On-Chip 2 MB SRAM Bloom / Cuckoo Filter partitioned into 3x 30s Epoch Arrays (~682 KB each).
 pub struct SramCuckooBloomFilter {
@@ -37,9 +37,12 @@ impl SramCuckooBloomFilter {
         let hash = hasher.finalize();
 
         // Generate 3 independent bit indices for 3-probe Bloom check
-        let idx1 = u64::from_le_bytes(hash[0..8].try_into().unwrap()) as usize % (self.words_per_array * 64);
-        let idx2 = u64::from_le_bytes(hash[8..16].try_into().unwrap()) as usize % (self.words_per_array * 64);
-        let idx3 = u64::from_le_bytes(hash[16..24].try_into().unwrap()) as usize % (self.words_per_array * 64);
+        let idx1 = u64::from_le_bytes(hash[0..8].try_into().unwrap()) as usize
+            % (self.words_per_array * 64);
+        let idx2 = u64::from_le_bytes(hash[8..16].try_into().unwrap()) as usize
+            % (self.words_per_array * 64);
+        let idx3 = u64::from_le_bytes(hash[16..24].try_into().unwrap()) as usize
+            % (self.words_per_array * 64);
 
         let indices = [idx1, idx2, idx3];
         let mut all_bits_were_set = true;
@@ -48,7 +51,8 @@ impl SramCuckooBloomFilter {
             let word_idx = bit_idx / 64;
             let bit_mask = 1u64 << (bit_idx % 64);
 
-            let old_val = self.sram_bit_arrays[self.current_epoch_idx][word_idx].fetch_or(bit_mask, Ordering::Relaxed);
+            let old_val = self.sram_bit_arrays[self.current_epoch_idx][word_idx]
+                .fetch_or(bit_mask, Ordering::Relaxed);
             if (old_val & bit_mask) == 0 {
                 all_bits_were_set = false;
             }
@@ -102,7 +106,12 @@ impl PoWVerificationEngine {
     }
 
     /// Stage 1 Stateless PoW check BEFORE SRAM insertion (<0.05 us).
-    pub fn verify_client_nonce(&mut self, relay_pubkey: &str, unix_timestamp_sec: u64, nonce: &str) -> Result<String, &'static str> {
+    pub fn verify_client_nonce(
+        &mut self,
+        relay_pubkey: &str,
+        unix_timestamp_sec: u64,
+        nonce: &str,
+    ) -> Result<String, &'static str> {
         self.sram_filter.rotate_epoch_if_needed();
 
         let curr_window = unix_timestamp_sec / 30;
@@ -112,7 +121,7 @@ impl PoWVerificationEngine {
         for win in valid_windows {
             let mut hasher = Sha256::new();
             hasher.update(relay_pubkey.as_bytes());
-            hasher.update(&win.to_be_bytes());
+            hasher.update(win.to_be_bytes());
             hasher.update(nonce.as_bytes());
             let hash = hasher.finalize();
 

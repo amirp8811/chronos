@@ -12,7 +12,7 @@ pub fn gf_mul_0x1d(mut a: u8, mut b: u8) -> u8 {
             res ^= a;
         }
         let high_bit_set = (a & 0x80) != 0;
-        a = (a << 1) & 0xFF;
+        a <<= 1;
         if high_bit_set {
             a ^= PRIMITIVE_POLYNOMIAL_MASK_0X1D;
         }
@@ -24,7 +24,9 @@ pub fn gf_mul_0x1d(mut a: u8, mut b: u8) -> u8 {
 /// Galois Field GF(2^8) multiplicative inverse via Fermat's Little Theorem (a^254 in GF(2^8)).
 #[inline(always)]
 pub fn gf_inv_0x1d(mut a: u8) -> u8 {
-    if a == 0 { return 0; }
+    if a == 0 {
+        return 0;
+    }
     let mut res = 1u8;
     let mut exp = 254u32;
     while exp > 0 {
@@ -59,16 +61,27 @@ impl ReedSolomon16_10 {
         let n = 16;
         let mut gen_matrix = Vec::with_capacity(n);
 
-        // Build Vandermonde generator matrix over GF(2^8)
+        // Build a systematic MDS generator matrix over GF(2^8):
+        // rows 0..k are the identity matrix, so the first 10 encoded shards are
+        // byte-for-byte data shards; rows k..n are Cauchy parity rows.  The
+        // previous Vandermonde-only matrix was not systematic while decode() had
+        // a systematic fast path, which made the first-10-shards case incorrect.
         for row in 0..n {
             let mut matrix_row = Vec::with_capacity(k);
-            for col in 0..k {
-                // Alpha = row + 1, exponent = col
-                let mut val = 1u8;
-                for _ in 0..col {
-                    val = gf_mul_0x1d(val, (row + 1) as u8);
+            if row < k {
+                for col in 0..k {
+                    matrix_row.push(if row == col { 1 } else { 0 });
                 }
-                matrix_row.push(val);
+            } else {
+                // Cauchy matrix entries: 1 / (x_i + y_j). In GF(2^8), + is XOR.
+                // x_i and y_j are chosen from disjoint non-zero sets so the
+                // denominator is never zero. This gives MDS parity rows for any
+                // 10-of-16 reconstruction.
+                let x_i = (row - k + 1) as u8;
+                for col in 0..k {
+                    let y_j = (16 + col) as u8;
+                    matrix_row.push(gf_inv_0x1d(x_i ^ y_j));
+                }
             }
             gen_matrix.push(matrix_row);
         }
@@ -79,7 +92,11 @@ impl ReedSolomon16_10 {
     /// Encode 10 data shards into 16 total shards (10 data + 6 parity).
     pub fn encode(&self, data_shards: &[&[u8]]) -> Result<Vec<Vec<u8>>, String> {
         if data_shards.len() != self.k {
-            return Err(format!("Expected {} data shards, got {}", self.k, data_shards.len()));
+            return Err(format!(
+                "Expected {} data shards, got {}",
+                self.k,
+                data_shards.len()
+            ));
         }
         let chunk_len = data_shards[0].len();
         for s in data_shards {
@@ -91,9 +108,8 @@ impl ReedSolomon16_10 {
         let mut all_shards = Vec::with_capacity(self.n);
         for row in 0..self.n {
             let mut shard = vec![0u8; chunk_len];
-            for col in 0..self.k {
+            for (col, d_chunk) in data_shards.iter().enumerate().take(self.k) {
                 let coef = self.gen_matrix[row][col];
-                let d_chunk = data_shards[col];
                 for (b_idx, &byte) in d_chunk.iter().enumerate() {
                     shard[b_idx] ^= gf_mul_0x1d(coef, byte);
                 }
@@ -104,9 +120,14 @@ impl ReedSolomon16_10 {
     }
 
     /// Decode and reconstruct 10 original data shards from any 10 surviving shards out of 16.
+    #[allow(clippy::needless_range_loop)]
     pub fn decode(&self, surviving_shards: &[Option<Vec<u8>>]) -> Result<Vec<Vec<u8>>, String> {
         if surviving_shards.len() != self.n {
-            return Err(format!("Expected {} shard options, got {}", self.n, surviving_shards.len()));
+            return Err(format!(
+                "Expected {} shard options, got {}",
+                self.n,
+                surviving_shards.len()
+            ));
         }
 
         let mut available_indices = Vec::new();
@@ -120,16 +141,23 @@ impl ReedSolomon16_10 {
         }
 
         if available_indices.len() < self.k {
-            return Err(format!("Insufficient shards for reconstruction: found {}, needed {}", available_indices.len(), self.k));
+            return Err(format!(
+                "Insufficient shards for reconstruction: found {}, needed {}",
+                available_indices.len(),
+                self.k
+            ));
         }
 
-        let chunk_len = surviving_shards[available_indices[0]].as_ref().unwrap().len();
+        let chunk_len = surviving_shards[available_indices[0]]
+            .as_ref()
+            .unwrap()
+            .len();
 
         // Check if we already have the first 10 data shards directly
         if available_indices == (0..self.k).collect::<Vec<_>>() {
             let mut result = Vec::with_capacity(self.k);
-            for i in 0..self.k {
-                result.push(surviving_shards[i].as_ref().unwrap().clone());
+            for shard in surviving_shards.iter().take(self.k) {
+                result.push(shard.as_ref().unwrap().clone());
             }
             return Ok(result);
         }
@@ -182,7 +210,9 @@ impl ReedSolomon16_10 {
             let mut rec_bytes = vec![0u8; chunk_len];
             for col_idx in 0..self.k {
                 let coef = inv_matrix[row_idx][col_idx];
-                let s_chunk = surviving_shards[available_indices[col_idx]].as_ref().unwrap();
+                let s_chunk = surviving_shards[available_indices[col_idx]]
+                    .as_ref()
+                    .unwrap();
                 for (b_idx, &byte) in s_chunk.iter().enumerate() {
                     rec_bytes[b_idx] ^= gf_mul_0x1d(coef, byte);
                 }
@@ -197,5 +227,40 @@ impl ReedSolomon16_10 {
 impl Default for ReedSolomon16_10 {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encoder_is_systematic_for_first_ten_shards() {
+        let rs = ReedSolomon16_10::new();
+        let data: Vec<Vec<u8>> = (0..10)
+            .map(|i| vec![i as u8, i as u8 + 1, i as u8 + 2, i as u8 + 3])
+            .collect();
+        let refs: Vec<&[u8]> = data.iter().map(Vec::as_slice).collect();
+        let encoded = rs.encode(&refs).expect("encode");
+        assert_eq!(&encoded[..10], &data[..]);
+    }
+
+    #[test]
+    fn decoder_recovers_when_data_and_parity_shards_are_missing() {
+        let rs = ReedSolomon16_10::new();
+        let data: Vec<Vec<u8>> = (0..10)
+            .map(|i| (0..32).map(|j| (i * 17 + j) as u8).collect())
+            .collect();
+        let refs: Vec<&[u8]> = data.iter().map(Vec::as_slice).collect();
+        let encoded = rs.encode(&refs).expect("encode");
+
+        let mut surviving: Vec<Option<Vec<u8>>> = encoded.into_iter().map(Some).collect();
+        // Remove a mix of data and parity shards, leaving exactly 10 survivors.
+        for idx in [0usize, 2, 5, 9, 10, 14] {
+            surviving[idx] = None;
+        }
+
+        let decoded = rs.decode(&surviving).expect("decode");
+        assert_eq!(decoded, data);
     }
 }

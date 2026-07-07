@@ -1,13 +1,12 @@
 [package]
 name = "chronos-dir"
 version = "7.0.0"
-edition = "2021"
+edition = "2024"
 authors = ["Clean-Slate Anonymous Networking Working Group"]
 description = "Decentralized HotStuff BFT directory consensus mesh for CHRONOS v7.0"
 
 [dependencies]
-chronos-core = { path = "../chronos-core" }
-tokio = { version = "1.37", features = ["full"] }
+tokio = { version = "1.37", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 log = "0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }

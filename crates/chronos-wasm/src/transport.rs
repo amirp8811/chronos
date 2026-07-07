@@ -20,28 +20,36 @@ impl WebTransportConnection {
 
     /// Execute DPLPMTUD (RFC 8899) proactive padding probes without relying on ICMP feedback.
     pub fn execute_dplpmtud_probes(&mut self) -> Result<usize, String> {
-        info!("Initiating DPLPMTUD proactive padding probes across WebTransport path to {}...", self.guard_endpoint);
+        info!(
+            "Initiating DPLPMTUD proactive padding probes across WebTransport path to {}...",
+            self.guard_endpoint
+        );
 
         // Simulate probing across restrictive enterprise GRE tunnels
         let probe_sizes = [1280, 1200, 1024];
 
         for &probe_size in &probe_sizes {
-            info!("  |- Transmitting synthetic QUIC padding probe at {} Bytes...", probe_size);
-            
+            info!(
+                "  |- Transmitting synthetic QUIC padding probe at {} Bytes...",
+                probe_size
+            );
+
             // Simulate GRE tunnel dropping 1280B and 1200B probes without sending ICMP
-            let ack_received = if probe_size > 1024 && self.guard_endpoint.contains("gre-tunnel") {
-                false
-            } else {
-                true
-            };
+            let ack_received = !(probe_size > 1024 && self.guard_endpoint.contains("gre-tunnel"));
 
             if ack_received {
-                info!("  |---> QUIC ACK received for {}B probe! MTU validated.", probe_size);
+                info!(
+                    "  |---> QUIC ACK received for {}B probe! MTU validated.",
+                    probe_size
+                );
                 self.negotiated_mtu_bytes = probe_size;
                 self.is_connected = true;
                 return Ok(probe_size);
             } else {
-                warn!("  |---> Probe {}B timed out (<36 ms). MTU black hole detected without ICMP!", probe_size);
+                warn!(
+                    "  |---> Probe {}B timed out (<36 ms). MTU black hole detected without ICMP!",
+                    probe_size
+                );
             }
         }
 

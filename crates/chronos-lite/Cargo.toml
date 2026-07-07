@@ -1,13 +1,11 @@
 [package]
 name = "chronos-lite"
 version = "7.0.0"
-edition = "2021"
+edition = "2024"
 authors = ["Clean-Slate Anonymous Networking Working Group"]
 description = "Residential ingress sentinel & DPF storage relay node for consumer ARM hardware"
 
 [dependencies]
 chronos-core = { path = "../chronos-core" }
-tokio = { version = "1.37", features = ["full"] }
+tokio = { version = "1.37", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 log = "0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"

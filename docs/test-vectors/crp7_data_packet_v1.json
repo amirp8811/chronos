@@ -1,0 +1,8 @@
+{
+  "name": "CRP7 data packet v1 minimal",
+  "packet_type": "Data",
+  "stream_id": 1,
+  "sequence": 2,
+  "payload_hex": "010203",
+  "encoded_hex": "43525037010600000003000000000000000000010000000000000002010203"
+}

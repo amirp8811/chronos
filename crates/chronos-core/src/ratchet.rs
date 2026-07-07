@@ -1,8 +1,8 @@
 //! Hybrid Dual-Trigger HKDF Key Ratchet.
 //! CHRONOS-SPEC-v7.0 Section 1.1 & 3.1
 
-use sha2::{Sha256, Digest};
-use std::time::{Instant, Duration};
+use sha2::{Digest, Sha256};
+use std::time::{Duration, Instant};
 
 pub struct SessionKeyRatchet {
     pub current_secret: [u8; 32],
@@ -29,7 +29,7 @@ impl SessionKeyRatchet {
 
         if volume_exceeded || temporal_exceeded {
             let mut hasher = Sha256::new();
-            hasher.update(&self.current_secret);
+            hasher.update(self.current_secret);
             hasher.update(b"chronos_v7_ratchet_step");
             let result = hasher.finalize();
             self.current_secret.copy_from_slice(&result);
@@ -47,9 +47,9 @@ impl SessionKeyRatchet {
         self.check_and_ratchet();
 
         let mut hasher = Sha256::new();
-        hasher.update(&self.current_secret);
+        hasher.update(self.current_secret);
         hasher.update(current_tag);
-        hasher.update(&seq.to_be_bytes());
+        hasher.update(seq.to_be_bytes());
         let full_hash = hasher.finalize();
 
         let mut next_tag = [0u8; 16];

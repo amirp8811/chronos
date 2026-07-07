@@ -32,3 +32,18 @@ enable_stateless_quic_retry_cookies = true
 [key_ratchet]
 volume_trigger_datagrams = 65536 # ~83.8 MB
 temporal_trigger_seconds = 60.0
+
+
+[runtime]
+# Optional local prototype service settings. Environment variables override these in the daemon.
+key_dir = ".chronosd-keys"
+# udp_relay_bind = "127.0.0.1:7000"
+static_routes = ""
+route_secrets = ""
+route_replay_max_entries = 4096
+route_replay_ttl_seconds = 300
+outbound_queue_max = 1024
+# Optional prototype pacing: 0 disables live sleeps; non-zero sleeps before each UDP send.
+tdm_slot_ms = 0
+# metrics_bind = "127.0.0.1:9100"
+enforce_sessions = false

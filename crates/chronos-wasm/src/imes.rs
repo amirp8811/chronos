@@ -12,10 +12,10 @@ pub struct ImesScheduler {
 impl ImesScheduler {
     pub fn new() -> Self {
         let mut rtts = HashMap::new();
-        rtts.insert(1, 18.0);  // AWS London (Low RTT)
-        rtts.insert(5, 45.0);  // Hetzner Berlin (Mid RTT)
+        rtts.insert(1, 18.0); // AWS London (Low RTT)
+        rtts.insert(5, 45.0); // Hetzner Berlin (Mid RTT)
         rtts.insert(10, 85.0); // DigitalOcean NY (Mid RTT)
-        rtts.insert(16, 165.0);// OVH Singapore (High RTT)
+        rtts.insert(16, 165.0); // OVH Singapore (High RTT)
 
         Self {
             path_rtts_ms: rtts,
@@ -38,13 +38,19 @@ impl ImesScheduler {
                 "Secondary Parity Shard (p1..p6)"
             };
             schedule.push((path_id, pre_delay, shard_type));
-            info!("  |- Path #{:02} (RTT={:5.1f}ms) -> Apply Tx Pre-Delay: {:5.1f}ms | Assigned: {}", 
-                  path_id, rtt, pre_delay, shard_type);
+            info!(
+                "  |- Path #{:02} (RTT={:5.1}ms) -> Apply Tx Pre-Delay: {:5.1}ms | Assigned: {}",
+                path_id, rtt, pre_delay, shard_type
+            );
         }
 
-        info!("ECDF ARRIVAL SYNCHRONIZATION: All shards arrive at destination within tight {:.2} ms window!", 
-              self.ecdf_arrival_window_ms);
-        info!("HoL reassembly buffer bloat completely eliminated (<35 ms interactive latency guaranteed).");
+        info!(
+            "ECDF ARRIVAL SYNCHRONIZATION: All shards arrive at destination within tight {:.2} ms window!",
+            self.ecdf_arrival_window_ms
+        );
+        info!(
+            "HoL reassembly buffer bloat completely eliminated (<35 ms interactive latency guaranteed)."
+        );
 
         schedule
     }

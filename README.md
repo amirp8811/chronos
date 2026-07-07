@@ -8,6 +8,18 @@
 
 ---
 
+## Current implementation reality
+
+This repository is a rapidly evolving local prototype. Core packet, handshake, route, relay, directory, DPF persistence, WASM binding, metrics, and fuzz scaffolding components exist and are tested, but production anonymity, consensus, mobile, browser transport, AF_XDP/io_uring, and NIC-control claims remain target-spec work unless explicitly marked implemented in `IMPLEMENTATION_STATUS.md`.
+
+> **Implementation status:** This repository is currently a reference prototype and simulation scaffold.
+> The workspace is being aligned toward the CHRONOS v7.0 specification, but several
+> spec-level systems described below still require production implementations, including
+> real ML-KEM/X25519/AEAD Sphinx packets, AF_XDP/io_uring packet I/O, WebTransport/WASM
+> browser bindings, BLS/HotStuff consensus, DPF-PIR, and NIC netlink control. Do not
+> use the current code for real anonymity or security-critical traffic.
+
+
 ## Executive Summary & Architectural Vision
 
 **CHRONOS v7.0** is a production-grade, pure software anonymous communication fabric engineered to solve the historical **Das et al. (2018) "Anonymity Trilemma"** (Strong Anonymity against a Global Passive Adversary, Low Latency, and Low Bandwidth Overhead). 

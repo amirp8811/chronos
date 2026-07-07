@@ -20,9 +20,15 @@ impl NatTraversalEngine {
         if self.is_behind_cgnat {
             info!("Carrier-Grade NAT (CGNAT) detected on residential ARM node.");
             for endpoint in &self.turn_reflector_endpoints {
-                info!("Negotiating TURN relay allocation with reflector {}...", endpoint);
+                info!(
+                    "Negotiating TURN relay allocation with reflector {}...",
+                    endpoint
+                );
             }
-            info!("Path Role Assignment: {}", self.assign_path_weighting_role(11));
+            info!(
+                "Path Role Assignment: {}",
+                self.assign_path_weighting_role(11)
+            );
             info!("SUCCESS: Direct WebTransport datagram path established through CGNAT!");
             Ok("webrtc-turn-bridge-active".to_string())
         } else {

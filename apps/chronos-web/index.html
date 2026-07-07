@@ -206,6 +206,32 @@
     </div>
 </div>
 
+<div class="card">
+    <h2>🧩 Real WASM Runtime Probe</h2>
+    <div class="metric-row"><span>WASM Status:</span><span class="metric-val" id="wasm-status">Not loaded</span></div>
+    <div class="metric-row"><span>TDM Plan:</span><span class="metric-val" id="wasm-tdm">n/a</span></div>
+</div>
+
+<script type="module">
+    async function loadChronosWasm() {
+        const status = document.getElementById('wasm-status');
+        const tdm = document.getElementById('wasm-tdm');
+        try {
+            const mod = await import('./pkg/chronos_wasm.js');
+            await mod.default();
+            status.textContent = mod.chronos_wasm_version();
+            tdm.textContent = mod.chronos_plan_tdm_slots(8, 3, true);
+            if (!mod.chronos_secure_cell_self_test('browser-self-test')) {
+                status.textContent = 'WASM loaded but secure-cell self-test failed';
+            }
+        } catch (err) {
+            status.textContent = 'WASM bundle not built; using demo fallback';
+            tdm.textContent = 'Build with wasm-pack into apps/chronos-web/pkg';
+        }
+    }
+    loadChronosWasm();
+</script>
+
 <script>
     const consoleBox = document.getElementById('console-output');
     const transportVal = document.getElementById('transport-val');

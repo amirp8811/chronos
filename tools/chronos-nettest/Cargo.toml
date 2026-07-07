@@ -1,0 +1,10 @@
+[package]
+name = "chronos-nettest"
+version = "0.1.0"
+edition = "2024"
+description = "Chutney-like local multi-process CHRONOS relay smoke test"
+publish = false
+
+[dependencies]
+chronos-core = { path = "../../crates/chronos-core" }
+tokio = { version = "1.37", features = ["macros", "net", "process", "rt-multi-thread", "time"] }

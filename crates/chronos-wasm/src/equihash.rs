@@ -19,9 +19,13 @@ impl WebWorkerEquihashSolver {
 
     /// Simulate asynchronous PoW solving on background Web Worker threads (`wasm32-simd128`).
     pub fn solve_background_puzzle(&self, epoch_window: u64) -> String {
-        info!("Spawning {} Web Workers mapping unified {} MB SharedArrayBuffer arena...", 
-              self.num_workers, self.shared_buffer_size_mb);
-        info!("Executing memory-hard Argon2id over 2 sequential passes (Time-Memory Asymmetric Pruning)...");
+        info!(
+            "Spawning {} Web Workers mapping unified {} MB SharedArrayBuffer arena...",
+            self.num_workers, self.shared_buffer_size_mb
+        );
+        info!(
+            "Executing memory-hard Argon2id over 2 sequential passes (Time-Memory Asymmetric Pruning)..."
+        );
 
         let start_t = Instant::now();
         // Simulate sequential RAM lookups on background worker thread
@@ -31,11 +35,25 @@ impl WebWorkerEquihashSolver {
         }
         let elapsed_ms = start_t.elapsed().as_millis() as f64 + 42.1;
 
-        let solved_nonce = format!("precomputed_equihash_win_{}_nonce_{:x}", epoch_window, sim_work);
-        info!("Background worker solved memory-hard puzzle in {:.1} ms.", elapsed_ms);
-        info!("Main Browser GUI Thread compute impact: 0.0% CPU (0 ms UI lag, 60fps responsive ✔️).");
+        let solved_nonce = format!(
+            "precomputed_equihash_win_{}_nonce_{:x}",
+            epoch_window, sim_work
+        );
+        info!(
+            "Background worker solved memory-hard puzzle in {:.1} ms.",
+            elapsed_ms
+        );
+        info!(
+            "Main Browser GUI Thread compute impact: 0.0% CPU (0 ms UI lag, 60fps responsive ✔️)."
+        );
         info!("Attacking botnets face 80 GB/s memory bandwidth exhaustion per attack server!");
 
         solved_nonce
+    }
+}
+
+impl Default for WebWorkerEquihashSolver {
+    fn default() -> Self {
+        Self::new()
     }
 }

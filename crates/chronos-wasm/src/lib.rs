@@ -1,19 +1,21 @@
 //! `chronos-wasm` — WebAssembly Client Engine
 //! CHRONOS-SPEC-v7.0 Section 1, 3 & 4
 
-pub mod transport;
+pub mod bindings;
 pub mod equihash;
 pub mod hydra_tcp;
-pub mod stego_ws;
 pub mod imes;
 pub mod mobile_power;
+pub mod stego_ws;
+pub mod transport;
 
-pub use transport::*;
+pub use bindings::*;
 pub use equihash::*;
 pub use hydra_tcp::*;
-pub use stego_ws::*;
 pub use imes::*;
 pub use mobile_power::*;
+pub use stego_ws::*;
+pub use transport::*;
 
 use log::info;
 
