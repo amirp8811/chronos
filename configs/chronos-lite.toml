@@ -1,0 +1,28 @@
+# Production Configuration for Residential ARM Node (`chronos-lite`)
+# CHRONOS-SPEC-v7.0 Section 2.1 & 5.1
+
+[node]
+node_name = "residential-pi5-home-node-42"
+node_id_fp = "3p8w1m9z2v4b6y7x0a5c.chr"
+operating_role = "dpf_storage_relay" # Options: "local_ingress_sentinel", "dpf_storage_relay"
+jurisdiction = "EU (Germany)"
+
+[data_plane]
+interface = "wlan0"
+engine = "io_uring_direct_batching" # Unprivileged user-space execution without root/hugepages
+sqpoll_enabled = true
+register_memory_buffers = true
+
+[storage_relay]
+enable_dpf_pir_engine = true
+max_shard_buckets = 100000 # 400 MB DB capacity for consumer ARM Cortex hardware
+epoch_snapshot_interval_sec = 60
+merkle_root_publishing = true
+http_cache_control_ttl_sec = 600 # 10-minute self-expiring TTLs
+
+[nat_traversal]
+enable_webrtc_ice_stun_turn = true
+turn_reflector_guard_endpoints = [
+    "turn:guard1.chronos-network.org:3478",
+    "turn:guard2.chronos-network.org:3478"
+]

@@ -1,0 +1,15 @@
+namespace chronos {
+    u32 process_packet([ByRef] sequence<u8> data);
+};
+
+interface SphinxEngine {
+    constructor();
+    [Throws=SphinxError]
+    sequence<u8> wrap_layer(sequence<u8> payload, sequence<u8> key);
+};
+
+[Error]
+enum SphinxError {
+    "InvalidLength",
+    "DecapsulationFailed",
+};

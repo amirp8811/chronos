@@ -1,0 +1,10 @@
+# Stage 1: Build
+FROM rust:1.75-slim as builder
+WORKDIR /usr/src/chronos
+COPY . .
+RUN cargo build --release --bin chronosd
+
+# Stage 2: Runtime
+FROM scratch
+COPY --from=builder /usr/src/chronos/target/release/chronosd /usr/local/bin/chronosd
+ENTRYPOINT ["chronosd"]

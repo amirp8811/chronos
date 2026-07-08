@@ -1,0 +1,22 @@
+# Production Configuration for Decentralized Directory Consensus Node (`chronos-dir`)
+# CHRONOS-SPEC-v7.0 Section 3 & 4
+
+[consensus]
+node_name = "dir-authority-zurich-01"
+validator_pubkey_bls12_381 = "0x89AB3210...BLS_PUBKEY"
+quorum_tier = "regional_leader_eu" # Options: "regional_validator", "regional_leader", "global_gossip"
+target_sub_epoch_finality_sec = 2.50
+hotstuff_commit_timeout_sec = 3.0
+
+[transparency_logs]
+publish_to_certificate_transparency = true
+ct_log_endpoints = [
+    "https://ct.googleapis.com/logs/chronos_2026/",
+    "https://ct.cloudflare.com/logs/chronos_nimbus/"
+]
+archival_root_interval_min = 60
+
+[decoy_auditing]
+enable_secret_shopper_probes = true
+probe_rate_per_relay_sec = 10.0
+eviction_failure_threshold_pct = 1.0 # Slashing staked bond upon >1% decoy probe drop

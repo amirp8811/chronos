@@ -1,0 +1,61 @@
+[package]
+name = "chronos-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+chronos-core = { path = "../crates/chronos-core" }
+
+[[bin]]
+name = "relay_packet"
+path = "fuzz_targets/relay_packet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "handshake_packet"
+path = "fuzz_targets/handshake_packet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "secure_cell"
+path = "fuzz_targets/secure_cell.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "route_packet"
+path = "fuzz_targets/route_packet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "chronosd_config"
+path = "fuzz_targets/chronosd_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "chronos_lite_config"
+path = "fuzz_targets/chronos_lite_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "directory_api"
+path = "fuzz_targets/directory_api.rs"
+test = false
+doc = false
+bench = false
