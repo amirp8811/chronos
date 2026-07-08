@@ -8,3 +8,4 @@ publish = false
 [dependencies]
 chronos-core = { path = "../../crates/chronos-core" }
 tokio = { version = "1.37", features = ["macros", "net", "process", "rt-multi-thread", "time"] }
+rand = "0.8"

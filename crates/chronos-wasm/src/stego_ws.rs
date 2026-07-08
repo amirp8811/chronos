@@ -3,61 +3,62 @@
 
 use log::info;
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum StegoFrameError {
+    MalformedHeader,
+    PayloadTooLarge,
+    TruncatedData,
+}
+
 pub struct SteganographicWebSocketEngine {
     pub active_channels: Vec<(String, String, String)>,
+    pub max_frame_size: usize,
 }
 
 impl SteganographicWebSocketEngine {
     pub fn new() -> Self {
         Self {
             active_channels: vec![
-                (
-                    "Channel 1 (Decoy)  ".to_string(),
-                    "gateway.icloud.com   ".to_string(),
-                    "Authentic Apple CloudKit Sync JSON ".to_string(),
-                ),
-                (
-                    "Channel 2 (Decoy)  ".to_string(),
-                    "firebaseio.com       ".to_string(),
-                    "Authentic Firebase Protobuf Ping   ".to_string(),
-                ),
-                (
-                    "Channel 3 (Decoy)  ".to_string(),
-                    "cloudflareworkers.com".to_string(),
-                    "Authentic Workers WebSocket Ping   ".to_string(),
-                ),
-                (
-                    "Channel 4 (Decoy)  ".to_string(),
-                    "gateway.discord.gg   ".to_string(),
-                    "Authentic Discord Heartbeat Frame  ".to_string(),
-                ),
-                (
-                    "Channel 5 (CHRONOS)".to_string(),
-                    "chronos-store Hetzner".to_string(),
-                    "Encrypted CHRONOS WebTransport Shard".to_string(),
-                ),
+                ("Channel 1 (Decoy)".to_string(), "gateway.icloud.com".to_string(), "JSON".to_string()),
+                ("Channel 5 (CHRONOS)".to_string(), "chronos-store".to_string(), "WebTransport".to_string()),
             ],
+            max_frame_size: 16384,
         }
     }
 
-    /// Establish 5 simultaneous, uniform persistent bidirectional pipes over HTTP/3.
-    pub fn establish_steganographic_pipes(&self, duration_sec: f64) {
-        info!(
-            "Establishing 5 simultaneous, uniform persistent WebTransport / WebSocket pipes over HTTP/3..."
-        );
-
-        for (name, host, payload) in &self.active_channels {
-            info!("  |- {} | Host: {} | Payload: {}", name, host, payload);
+    /// Hardened parser for steganographic WebSocket frames.
+    pub fn parse_stego_ws_frame(&self, data: &[u8]) -> Result<&[u8], StegoFrameError> {
+        if data.len() < 2 {
+            return Err(StegoFrameError::TruncatedData);
+        }
+        
+        let header = data[0];
+        if header != 0x82 { // Binary frame
+            return Err(StegoFrameError::MalformedHeader);
         }
 
-        info!(
-            "ALL 5 CHANNELS ACTIVE for {:.1}s duration. Protocol state transitions, TLS handshakes,",
-            duration_sec
-        );
-        info!("and bidirectional waveforms are 100% structurally identical across all channels.");
-        info!(
-            "ML-TA WIRE TAP VIEW: 0.00% protocol state anomaly! Hiding in plain sight within cloud chatter."
-        );
+        let len_byte = data[1] & 0x7F;
+        let (payload_len, header_size) = match len_byte {
+            126 => {
+                if data.len() < 4 { return Err(StegoFrameError::TruncatedData); }
+                (u16::from_be_bytes([data[2], data[3]]) as usize, 4)
+            }
+            127 => {
+                if data.len() < 10 { return Err(StegoFrameError::TruncatedData); }
+                (u64::from_be_bytes(data[2..10].try_into().unwrap()) as usize, 10)
+            }
+            l => (l as usize, 2)
+        };
+
+        if payload_len > self.max_frame_size {
+            return Err(StegoFrameError::PayloadTooLarge);
+        }
+
+        if data.len() < header_size + payload_len {
+            return Err(StegoFrameError::TruncatedData);
+        }
+
+        Ok(&data[header_size..header_size + payload_len])
     }
 }
 

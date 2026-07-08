@@ -1,0 +1,12 @@
+[package]
+name = "chronos-sys-dataplane"
+version = "7.0.0"
+edition = "2021"
+authors = ["Clean-Slate Anonymous Networking Working Group"]
+description = "Isolated CHRONOS dataplane HAL for AF_XDP/io_uring/NIC boundary code"
+
+[dependencies]
+log = "0.4"
+
+[dev-dependencies]
+loom = "0.7"

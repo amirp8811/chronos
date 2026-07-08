@@ -1,8 +1,33 @@
 # Contributing to CHRONOS
 
-We welcome contributions from systems engineers, cryptographers, protocol researchers, and developers who share our commitment to overcoming the Das et al. (2018) Anonymity Trilemma.
+We welcome contributions from systems engineers, cryptographers, and privacy advocates.
 
-## Engineering & Architectural Rigor
-1. Memory Safety & High-Performance Execution: All core data-plane routing, cryptography, and framing primitives must be written in Rust (2024 Edition). Never allocate heap memory (Box, Vec, String) on hot routing paths?utilize pre-mapped 4 KB hugepage descriptors and zero-copy io_uring direct buffers.
-2. Preservation of the Anonymity Trilemma: Any contribution that introduces variable bandwidth bursts (O(N) dummy broadcasts) or asynchronous event-driven timing leaks without constant-rate cover noise will be rejected.
-3. Post-Quantum Cryptography Compliance: All new cryptographic protocols must align with NIST Post-Quantum Cryptography standards (ML-KEM-768 + X25519 hybrid ECDH + ChaCha20-Poly1305).
+---
+
+## 1. Getting Started
+1. Familiarize yourself with the **Anonymity Trilemma** and TDM mixnet models.
+2. Ensure you have the latest Rust toolchain installed.
+3. Check the **Implementation Status** in `ARCHITECTURE.md` for open tasks.
+
+### Good First Issues
+- Standardizing logging in `chronos-lite`.
+- Adding unit tests for Galois field edge cases.
+- Improving the `mdBook` documentation site.
+
+---
+
+## 2. Governance Model
+CHRONOS currently operates under a **Benevolent Dictator for Life (BDFL)** model, led by Amir P (@amirp8811). Major architectural decisions are managed via GitHub RFCs.
+
+---
+
+## 3. Code of Conduct
+We are committed to a harassment-free environment. All participants are expected to act professionally and respectfully. 
+
+---
+
+## 4. Developer Automation
+The project uses a `Justfile` for common tasks:
+- `just docs`: Build the documentation book.
+- `just validate`: Run the security audit suite.
+- `just verify`: Run formal verification (requires Kani).

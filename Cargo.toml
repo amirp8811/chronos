@@ -6,5 +6,6 @@ members = [
     "crates/chronos-lite",
     "crates/chronos-dir",
     "crates/chronos-wasm",
+    "crates/chronos-sys-dataplane",
     "tools/chronos-nettest",
 ]
