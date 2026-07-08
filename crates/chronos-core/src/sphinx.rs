@@ -1,8 +1,8 @@
 //! Sphinx-PQC Onion Encapsulation, Blinding, & Epoch-Session Header Compression.
 //! CHRONOS-SPEC-v7.0 Section 1.1 & 2.1
 
-use sha2::{Sha256, Digest};
 use crate::framing::SphinxPqcCell;
+use sha2::{Digest, Sha256};
 
 /// Sphinx-PQC Onion Processor managing 4-hop nested encryption and header compression.
 pub struct SphinxOnionProcessor {
@@ -15,7 +15,12 @@ impl SphinxOnionProcessor {
     }
 
     /// Encapsulate a 944-byte payload inside a compressed 1,280-byte Sphinx-PQC cell.
-    pub fn encapsulate(&self, initial_tag: [u8; 16], seq: u64, payload: &[u8]) -> Result<SphinxPqcCell, String> {
+    pub fn encapsulate(
+        &self,
+        initial_tag: [u8; 16],
+        seq: u64,
+        payload: &[u8],
+    ) -> Result<SphinxPqcCell, String> {
         if payload.len() > 944 {
             return Err("Payload exceeds 944-byte SHARD-Stream cell budget".to_string());
         }
@@ -29,7 +34,7 @@ impl SphinxOnionProcessor {
             let mut hasher = Sha256::new();
             hasher.update(secret);
             hasher.update(b"sphinx_header_layer");
-            hasher.update(&hop.to_be_bytes());
+            hasher.update(hop.to_be_bytes());
             let keystream = hasher.finalize();
 
             // Apply XOR keystream blinding across the 212-byte routing header
@@ -41,10 +46,10 @@ impl SphinxOnionProcessor {
 
         // Compute end-to-end Poly1305 Integrity Check Value (ICV) across cell
         let mut hasher = Sha256::new();
-        hasher.update(&cell.mutated_session_tag);
-        hasher.update(&cell.monotonic_seq_iv);
-        hasher.update(&cell.compressed_onion_header);
-        hasher.update(&cell.shard_payload_or_noise);
+        hasher.update(cell.mutated_session_tag);
+        hasher.update(cell.monotonic_seq_iv);
+        hasher.update(cell.compressed_onion_header);
+        hasher.update(cell.shard_payload_or_noise);
         let icv_hash = hasher.finalize();
         cell.end_to_end_mac_icv.copy_from_slice(&icv_hash[..16]);
 
@@ -52,7 +57,11 @@ impl SphinxOnionProcessor {
     }
 
     /// Decapsulate one layer of Sphinx routing header at relay hop R_i.
-    pub fn decapsulate_hop(&self, hop_idx: usize, cell: &mut SphinxPqcCell) -> Result<([u8; 16], u32), String> {
+    pub fn decapsulate_hop(
+        &self,
+        hop_idx: usize,
+        cell: &mut SphinxPqcCell,
+    ) -> Result<([u8; 16], u32), String> {
         if hop_idx >= 4 {
             return Err("Invalid hop index for 4-hop circuit".to_string());
         }
@@ -62,8 +71,8 @@ impl SphinxOnionProcessor {
         // 1. Mutate Session Tag via inline HKDF-SHA256 loop (Section 1.1)
         let mut hasher = Sha256::new();
         hasher.update(secret);
-        hasher.update(&cell.mutated_session_tag);
-        hasher.update(&cell.monotonic_seq_iv);
+        hasher.update(cell.mutated_session_tag);
+        hasher.update(cell.monotonic_seq_iv);
         let next_tag_hash = hasher.finalize();
         let mut next_tag = [0u8; 16];
         next_tag.copy_from_slice(&next_tag_hash[..16]);
@@ -72,7 +81,7 @@ impl SphinxOnionProcessor {
         let mut hasher = Sha256::new();
         hasher.update(secret);
         hasher.update(b"sphinx_header_layer");
-        hasher.update(&hop_idx.to_be_bytes());
+        hasher.update(hop_idx.to_be_bytes());
         let keystream = hasher.finalize();
 
         for (i, byte) in cell.compressed_onion_header.iter_mut().enumerate() {

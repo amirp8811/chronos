@@ -141,7 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ToeplitzSaltShuffler::new(&config.interface, config.toeplitz_rss_threshold_req_sec);
 
     // 4. Initialize SIMD Bitonic Mixing Engine
-    let mixing_engine = BitonicSortingEngine::new(5.0);
+    let mixing_engine = BitonicSortingEngine::new(5.0, 64);
 
     info!("Daemon initialized successfully. Entering active TDM event loop.");
 

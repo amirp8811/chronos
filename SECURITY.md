@@ -49,3 +49,38 @@ CHRONOS maintainers have received:
 
 ## 5. Responsible Disclosure
 Vulnerabilities should be reported privately to `amirp8811@gmail.com`.
+
+---
+
+## 6. Measurable Experiment Hooks (Prototype)
+
+The following are **engineering metrics**, not anonymity proofs. They live in
+`chronos_core::anonymity_metrics` and are exercised by `chronos-nettest`:
+
+| Metric | Meaning | How to run |
+| --- | --- | --- |
+| Mutual information (timing) | Coarse GPA correlator between ingress/egress timestamps | `CHRONOS_NETTEST_MODE=leak-audit` |
+| Egress interval entropy | Diversity of inter-departure times | mix-sweep / leak-audit |
+| KL vs constant-rate | Distance of egress timing from ideal constant pacing | mix-sweep |
+| Latency CDF (p50/p95/p99) | End-to-end hold time under adaptive mix profiles | mix-sweep |
+| Bandwidth multiplier | `(real + cover) / real` bytes or packets | mix-sweep / smoke |
+
+### Adversary scopes currently modeled in software
+
+1. **Local passive observer** on a single hop: sees arrival/departure times and lengths.
+2. **Simulated mix batching**: adaptive K / max-wait / cover backfill (`MixProfile::{Fast,Normal,HighAnonymity}`).
+3. **Not yet modeled**: multi-hop GPA with colluding relays, active confirmation attacks, or directory query leakage.
+
+Reproducible sweeps:
+
+```bash
+bash scripts/run_mix_experiments.sh
+```
+
+---
+
+## 7. Trilemma strategy documents
+
+- Escape architecture (all-three product design): [`docs/HOW_TO_BEAT_THE_TRILEMMA.md`](docs/HOW_TO_BEAT_THE_TRILEMMA.md)
+- Measurement plan and S1–S10 gates: [`docs/TRILEMMA_SOLUTION_PLAN.md`](docs/TRILEMMA_SOLUTION_PLAN.md)
+

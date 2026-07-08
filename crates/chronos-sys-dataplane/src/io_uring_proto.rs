@@ -58,3 +58,9 @@ pub fn plan_io_uring(interface: &str, preferred_engine: &str, buffers: usize) ->
         sqpoll: probe.mode == DataPlaneMode::IoUringPrototype,
     }
 }
+
+impl Default for IoUringQueueCursor {
+    fn default() -> Self {
+        Self::new()
+    }
+}

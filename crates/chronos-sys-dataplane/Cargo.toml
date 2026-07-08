@@ -7,6 +7,7 @@ description = "Isolated CHRONOS dataplane HAL for AF_XDP/io_uring/NIC boundary c
 
 [dependencies]
 log = "0.4"
+libc = "0.2"
 
 [dev-dependencies]
 loom = "0.7"

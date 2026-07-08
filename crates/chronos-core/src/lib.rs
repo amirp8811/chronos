@@ -1,17 +1,23 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+pub mod clock;
+pub mod fountain;
 pub mod framing;
 pub mod gf28;
 pub mod handshake;
 pub mod hybrid_route;
+pub mod mix_policy;
 pub mod relay_packet;
 pub mod secure_cell;
 pub mod shard_stream;
 pub mod sphinx;
 pub mod tdm;
-pub mod clock;
-pub mod mix_policy;
 
+#[cfg(feature = "std")]
+pub mod anonymity_metrics;
 #[cfg(feature = "std")]
 pub mod handshake_protocol;
 #[cfg(feature = "std")]
@@ -31,17 +37,20 @@ pub mod session;
 #[cfg(feature = "std")]
 pub mod traffic_analysis;
 
+pub use fountain::*;
 pub use framing::*;
 pub use gf28::*;
 pub use handshake::*;
 pub use hybrid_route::*;
+pub use mix_policy::*;
 pub use relay_packet::*;
 pub use secure_cell::*;
 pub use shard_stream::*;
 pub use sphinx::*;
 pub use tdm::*;
-pub use mix_policy::*;
 
+#[cfg(feature = "std")]
+pub use anonymity_metrics::*;
 #[cfg(feature = "std")]
 pub use handshake_protocol::*;
 #[cfg(feature = "std")]
@@ -60,5 +69,6 @@ pub use route_layer::*;
 pub use session::*;
 #[cfg(feature = "std")]
 pub use traffic_analysis::*;
-mod kat_tests;
+
 mod kani_harness;
+mod kat_tests;

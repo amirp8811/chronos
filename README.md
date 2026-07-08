@@ -1,6 +1,8 @@
 # CHRONOS: Low-Latency, Multipath Anonymous Communication Fabric
 
-CHRONOS is a world-class, pure-software anonymous communication fabric engineered to overcome the **Anonymity Trilemma** (Strong Anonymity, Low Latency, and Low Bandwidth Overhead). It operates as a synchronous, Time-Division Multiplexed (TDM) and constant-rate paced multipath erasure network.
+CHRONOS is a pure-software anonymous communication fabric aimed at the **anonymity–latency–bandwidth frontier** (strong anonymity, low latency, low *incremental* bandwidth). It uses synchronous TDM pacing, multipath erasure coding, and an explicit **escape architecture** (prepaid isochronous slots + precomputed shuffle + PIR) so strong interactive modes are engineerable without denying classical impossibility results for free-silence mixnets.
+
+See **[docs/HOW_TO_BEAT_THE_TRILEMMA.md](docs/HOW_TO_BEAT_THE_TRILEMMA.md)** for the constructive design and **[docs/TRILEMMA_SOLUTION_PLAN.md](docs/TRILEMMA_SOLUTION_PLAN.md)** for measurement gates (S1–S10).
 
 ---
 
@@ -46,14 +48,18 @@ cargo run -p chronos-nettest
 - `crates/chronos-dir`: Decentralized directory and consensus.
 - `crates/chronos-lite`: Residential/ARM client runtime.
 - `crates/chronos-wasm`: Browser runtime with FFI panic barriers.
+- `docs/`: Trilemma strategy and escape architecture.
 
 ---
 
 ## 📚 Documentation
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) - Deep dive into design, wire formats, and implementation status.
-- [SECURITY.md](SECURITY.md) - Threat model, anonymity parameters, and validation architecture.
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Governance, Code of Conduct, and how to help.
+- [docs/HOW_TO_BEAT_THE_TRILEMMA.md](docs/HOW_TO_BEAT_THE_TRILEMMA.md) — **How CHRONOS beats the trilemma** (X1 slot / X2 org pod / X3 open stream).
+- [docs/TRILEMMA_SOLUTION_PLAN.md](docs/TRILEMMA_SOLUTION_PLAN.md) — Success criteria, pillars, experiment plan.
+- [docs/README.md](docs/README.md) — Documentation index.
+- [ARCHITECTURE.md](ARCHITECTURE.md) — Design, wire formats, implementation status.
+- [SECURITY.md](SECURITY.md) — Threat notes, anonymity parameters, validation gates.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Governance and how to help.
 
 ---
 

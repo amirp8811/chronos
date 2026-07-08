@@ -1,13 +1,9 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+//! Placeholder constant-time variance bench.
+//!
+//! Full criterion harness is optional; this binary still builds under
+//! `cargo test --workspace` / clippy all-targets.
 
-fn bench_sphinx_timing_variance(c: &mut Criterion) {
-    c.benchmark_group("constant_time_sphinx")
-        .bench_function("unwrap_layer", |b| {
-            b.iter(|| {
-                // Execute unwrap logic with varying inputs to check for timing leaks
-            })
-        });
+fn main() {
+    // Intentionally minimal: real timing benches need dedicated hardware quiet time.
+    let _ = (0u64..10_000u64).fold(0u64, |a, b| a.wrapping_add(b));
 }
-
-criterion_group!(benches, bench_sphinx_timing_variance);
-criterion_main!(benches);

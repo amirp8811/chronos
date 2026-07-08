@@ -1,8 +1,10 @@
-//! Dataplane ring-state model used by loom tests and future AF_XDP/io_uring HALs.
+//! Dataplane ring-state model used by tests and future AF_XDP/io_uring HALs.
 //!
 //! This module deliberately models ownership transitions instead of packet bytes:
 //! Free -> RxOwned -> TxOwned -> Free. The real HAL should preserve this state
 //! machine around UMEM descriptors and completion entries.
+
+use std::sync::atomic::{AtomicU8, Ordering};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DescriptorState {
@@ -18,18 +20,6 @@ pub enum DescriptorTransitionError {
         actual: DescriptorState,
     },
 }
-
-#[cfg(not(test))]
-mod atomics {
-    pub use std::sync::atomic::{AtomicU8, Ordering};
-}
-
-#[cfg(test)]
-mod atomics {
-    pub use loom::sync::atomic::{AtomicU8, Ordering};
-}
-
-use atomics::{AtomicU8, Ordering};
 
 pub struct DescriptorLifecycle {
     state: AtomicU8,
@@ -95,13 +85,14 @@ fn decode(v: u8) -> DescriptorState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    // Note: in a real loom test we'd use loom::thread, but for standard tests Arc is fine.
-    
+
     #[test]
     fn descriptor_cannot_be_double_claimed() {
         let d = DescriptorLifecycle::new();
         assert_eq!(d.claim_for_rx(), Ok(()));
         assert!(d.claim_for_rx().is_err());
+        assert_eq!(d.submit_for_tx(), Ok(()));
+        assert_eq!(d.complete_tx(), Ok(()));
+        assert_eq!(d.claim_for_rx(), Ok(()));
     }
 }

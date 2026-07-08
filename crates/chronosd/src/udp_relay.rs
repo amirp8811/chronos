@@ -14,10 +14,10 @@ use std::sync::{Arc, Mutex};
 use crate::queue::{BoundedRelayQueue, QueueError, QueuedRelayPacket};
 
 use chronos_core::{
-    HandshakePacket, HandshakePacketType, HandshakePublicKeys, NodeKeyMaterial, PowChallenge,
-    RELAY_PACKET_MAX_BYTES, RelayDecision, RelayErrorCode, RelayHandlerError, RelayPacket,
-    RelayPacketError, RelayPacketHandler, RouteCommandKind, RouteHopSecret, RouteLayerError,
-    RouteLayerProcessor, ServerHandshakeState, server_accept_handshake,
+    HandshakePacket, HandshakePacketType, HandshakePublicKeys, NodeKeyMaterial, PowAdmissionCache,
+    PowChallenge, RELAY_PACKET_MAX_BYTES, RelayDecision, RelayErrorCode, RelayHandlerError,
+    RelayPacket, RelayPacketError, RelayPacketHandler, RouteCommandKind, RouteHopSecret,
+    RouteLayerError, RouteLayerProcessor, ServerHandshakeState, server_accept_handshake,
 };
 use tokio::net::UdpSocket;
 
@@ -174,6 +174,7 @@ pub struct ChronosUdpRelay {
     enforce_sessions: bool,
     pow_challenge: Option<PowChallenge>,
     pow_admitted: std::collections::HashSet<SocketAddr>,
+    pow_cache: PowAdmissionCache,
     outbound_queue: BoundedRelayQueue,
     metrics: Arc<Mutex<UdpRelayMetrics>>,
     tdm_slot_width: std::time::Duration,
@@ -229,6 +230,7 @@ impl ChronosUdpRelay {
             enforce_sessions: false,
             pow_challenge: None,
             pow_admitted: std::collections::HashSet::new(),
+            pow_cache: PowAdmissionCache::new(4096, std::time::Duration::from_secs(300)),
             outbound_queue: BoundedRelayQueue::new(outbound_queue_max),
             metrics: Arc::new(Mutex::new(UdpRelayMetrics::default())),
             tdm_slot_width: std::time::Duration::ZERO,
@@ -388,8 +390,8 @@ impl ChronosUdpRelay {
                     source.to_string().as_bytes(),
                     b"chronosd-local-pow-secret",
                 );
-                source_challenge
-                    .verify(&packet.payload)
+                self.pow_cache
+                    .verify_and_insert(&source_challenge, &packet.payload)
                     .map_err(|e| UdpRelayError::Handshake(format!("pow verify: {e:?}")))?;
                 self.pow_admitted.insert(source);
                 let eph = NodeKeyMaterial::generate()
@@ -816,8 +818,12 @@ mod tests {
         let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("receiver");
         let mut routes = StaticRouteTable::new();
         routes.insert(10_000, receiver.local_addr().expect("receiver addr"));
-        let mut relay = ChronosUdpRelay::bind("127.0.0.1:0", routes).await.expect("relay");
-        relay.enable_handshake(NodeKeyMaterial::generate().expect("keys")).expect("enable");
+        let mut relay = ChronosUdpRelay::bind("127.0.0.1:0", routes)
+            .await
+            .expect("relay");
+        relay
+            .enable_handshake(NodeKeyMaterial::generate().expect("keys"))
+            .expect("enable");
         let challenge_template = PowChallenge {
             relay_id: [4; 16],
             unix_window: 1,
@@ -830,7 +836,10 @@ mod tests {
 
         let hello_request = HandshakePacket::new(HandshakePacketType::ServerHello, Vec::new())
             .expect("hello request");
-        client.send_to(&hello_request.encode().expect("encode"), relay_addr).await.expect("send hello request");
+        client
+            .send_to(&hello_request.encode().expect("encode"), relay_addr)
+            .await
+            .expect("send hello request");
         relay.relay_one().await.expect("challenge response");
         let mut buf = [0u8; 4096];
         let (len, _) = client.recv_from(&mut buf).await.expect("receive challenge");
@@ -842,11 +851,20 @@ mod tests {
         let solution = HandshakePacket::pow_solution(nonce).expect("solution");
         let solution_bytes = solution.encode().expect("encode solution");
 
-        client.send_to(&solution_bytes, relay_addr).await.expect("send first solution");
+        client
+            .send_to(&solution_bytes, relay_addr)
+            .await
+            .expect("send first solution");
         relay.relay_one().await.expect("first solution accepted");
-        let (_hello_len, _) = client.recv_from(&mut buf).await.expect("receive server hello");
+        let (_hello_len, _) = client
+            .recv_from(&mut buf)
+            .await
+            .expect("receive server hello");
 
-        client.send_to(&solution_bytes, relay_addr).await.expect("replay solution");
+        client
+            .send_to(&solution_bytes, relay_addr)
+            .await
+            .expect("replay solution");
         assert!(
             relay.relay_one().await.is_err(),
             "replayed PowSolution from same source was accepted; PoW nonces must be single-use"

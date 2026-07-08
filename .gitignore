@@ -4,3 +4,6 @@ target/
 .DS_Store
 .vscode/
 .idea/
+.VSCodeCounter/
+*.tar.gz
+artifacts/

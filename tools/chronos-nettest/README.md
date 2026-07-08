@@ -1,24 +1,34 @@
 # chronos-nettest
 
-A Chutney-like local smoke-test harness for CHRONOS.
+Local experiment harness for CHRONOS mix policy, FEC comparison, and traffic-analysis metrics.
 
-It spawns two local `chronosd` relay processes using `cargo run -p chronosd`,
-configures static routes, sends one CRP7 encrypted shard packet through:
+## Modes
 
-```text
-sender -> relay1 -> relay2 -> receiver
-```
+Set `CHRONOS_NETTEST_MODE`:
 
-and verifies receiver delivery plus sender ACK.
+| Mode | Purpose |
+| --- | --- |
+| `smoke` (default) | Quick adaptive-mix + fountain self-check |
+| `mix-sweep` | CSV sweep of profile × inter-arrival rate (MI, latency CDF, bandwidth) |
+| `fec-compare` | Reed-Solomon (16,10) vs fountain progressive recovery overhead |
+| `leak-audit` | Larger mix simulation with MI / entropy / latency percentiles |
 
-Run from the workspace root:
+Optional: `CHRONOS_NETTEST_PACKETS` (default depends on mode).
+
+## Examples
 
 ```bash
+# Smoke
 cargo run -p chronos-nettest
+
+# K / latency surface
+CHRONOS_NETTEST_MODE=mix-sweep CHRONOS_NETTEST_PACKETS=128 cargo run -p chronos-nettest
+
+# FEC overhead comparison
+CHRONOS_NETTEST_MODE=fec-compare cargo run -p chronos-nettest
+
+# Leak-oriented audit
+CHRONOS_NETTEST_MODE=leak-audit CHRONOS_NETTEST_PACKETS=2000 cargo run -p chronos-nettest
 ```
 
-You can override workspace discovery with:
-
-```bash
-CHRONOS_WORKSPACE=/path/to/chronos cargo run -p chronos-nettest
-```
+Metrics are defined in `chronos_core::anonymity_metrics` and do **not** claim production anonymity; they are for relative, reproducible experiments.
