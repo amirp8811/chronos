@@ -11,6 +11,14 @@ Status legend:
 
 Last updated: 2026-07-07
 
+> **Tracking workflow:** this file is the canonical, human-readable backlog
+> (a checklist, not free-form notes). Open items marked `[todo]` / `[partial]`
+> / `[external]` can be turned into GitHub Issues with
+> `scripts/create_issues.sh` (requires an authenticated `gh` CLI; runs as a
+> safe dry-run by default). Once an item is tracked as a GitHub Issue, keep
+> it listed here as the master checklist and flip its marker to `[done]` when
+> merged. Prefer GitHub Issues over editing this file for day-to-day status.
+
 ---
 
 ## 0. Current baseline
