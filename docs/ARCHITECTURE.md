@@ -27,6 +27,13 @@ Multi-type wire format: `Hello`, `Shard`, `Ack`, `Error`, `Route`, `Data`.
 ### **RTE7 (Route Layer)**
 Onion-wrapped commands with per-hop ChaCha20-Poly1305 and packet-id blinding.
 
+**Routing modules (complementary, not alternatives):** `chronos-core/src/sphinx.rs`
+defines the Sphinx-PQC *wire-header format* (`SphinxPqcCell`, `SphinxOnionProcessor`);
+`chronos-core/src/route_layer.rs` provides circuit/session *orchestration*
+(layered route packets, per-hop packet-ID blinding, single-use reply blocks, replay
+state). `route_layer` is the forward path for circuit construction and peeling;
+`sphinx` supplies the header it wraps. Both remain public modules.
+
 ---
 
 ## 3. Implementation Status Matrix
