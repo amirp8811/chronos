@@ -12,7 +12,7 @@ std = []
 [dependencies]
 sha2 = "0.10"
 chacha20poly1305 = "0.10"
-hkdf = "0.12"
+hkdf = "0.13"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 ml-kem = { version = "0.3", features = ["getrandom", "zeroize"] }
 getrandom = "0.2"
