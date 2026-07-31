@@ -1,6 +1,6 @@
+#![deny(unsafe_code)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(not(feature = "std"))]
 extern crate alloc;
 
 pub mod clock;
@@ -8,12 +8,18 @@ pub mod fountain;
 pub mod framing;
 pub mod gf28;
 pub mod handshake;
-pub mod hybrid_route;
 pub mod mix_policy;
-pub mod relay_packet;
 pub mod secure_cell;
 pub mod shard_stream;
-pub mod sphinx;
+
+#[cfg(feature = "simulation")]
+pub mod sphinx_sim;
+
+#[cfg(feature = "std")]
+pub mod hybrid_route;
+#[cfg(feature = "std")]
+pub mod relay_packet;
+#[cfg(feature = "std")]
 pub mod tdm;
 
 #[cfg(feature = "std")]
@@ -37,7 +43,9 @@ pub mod session;
 #[cfg(feature = "std")]
 pub mod traffic_analysis;
 
-pub use clock::{Clock, ManualClock, StdClock};
+#[cfg(feature = "std")]
+pub use clock::StdClock;
+pub use clock::{Clock, ManualClock};
 
 pub use fountain::{
     FountainConfig, FountainDecoder, FountainEncodeReport, FountainSymbol,
@@ -46,8 +54,7 @@ pub use fountain::{
 };
 
 pub use framing::{
-    APP_CELL_PAYLOAD_SIZE, SIMD_SCRATCHPAD_SIZE, SphinxPqcCell, UmemFrameDescriptor,
-    WIRE_DATAGRAM_SIZE,
+    APP_CELL_PAYLOAD_SIZE, SIMD_SCRATCHPAD_SIZE, UmemFrameDescriptor, WIRE_DATAGRAM_SIZE,
 };
 
 pub use gf28::{
@@ -57,6 +64,7 @@ pub use gf28::{
 
 pub use handshake::{LinkSharedSecret, X25519NodePublic, X25519NodeSecret};
 
+#[cfg(feature = "std")]
 pub use hybrid_route::{
     HybridRouteEncapsulation, HybridRouteError, MlKem768Ciphertext, MlKem768RouteKeypair,
     encapsulate_route_secret,
@@ -66,6 +74,7 @@ pub use mix_policy::{
     AdaptiveMixConfig, AdaptiveMixDecision, AdaptiveMixer, MixProfile, MixTelemetry,
 };
 
+#[cfg(feature = "std")]
 pub use relay_packet::{
     RELAY_PACKET_HEADER_SIZE, RELAY_PACKET_MAGIC, RELAY_PACKET_MAX_BYTES, RELAY_PACKET_MAX_PAYLOAD,
     RELAY_PACKET_VERSION, RelayErrorCode, RelayPacket, RelayPacketError, RelayPacketType,
@@ -74,7 +83,8 @@ pub use relay_packet::{
 pub use secure_cell::{
     ReceiveCellError, ReplayError, ReplayWindow, SECURE_CELL_AAD_SIZE, SECURE_CELL_CIPHERTEXT_SIZE,
     SECURE_CELL_HEADER_SIZE, SECURE_CELL_MAGIC, SECURE_CELL_RESERVED_SIZE, SECURE_CELL_TAG_SIZE,
-    SECURE_CELL_VERSION, SecureCellError, SecureCellReceiver, SecureShardCell, derive_link_key,
+    SECURE_CELL_VERSION, SecureCellError, SecureCellReceiver, SecureCellSender, SecureShardCell,
+    derive_link_key,
 };
 
 pub use shard_stream::{
@@ -82,8 +92,10 @@ pub use shard_stream::{
     SHARD_STREAM_MAX_SYMBOL_BYTES, SHARD_STREAM_N, SecureShardBlockCodec, ShardStreamError,
 };
 
-pub use sphinx::SphinxOnionProcessor;
+#[cfg(feature = "simulation")]
+pub use sphinx_sim::{SimulationOnionCell, SimulationOnionError, SphinxSimulationProcessor};
 
+#[cfg(feature = "std")]
 pub use tdm::{TdmCellKind, TdmScheduler, TdmSlot};
 
 #[cfg(feature = "std")]
@@ -100,7 +112,7 @@ pub use handshake_protocol::{
     ED25519_SIGNATURE_BYTES, HANDSHAKE_MAGIC, HANDSHAKE_SUITE_MLKEM768_X25519_CHACHA20POLY1305,
     HANDSHAKE_VERSION, HandshakeError, HandshakePacket, HandshakePacketType, HandshakePublicKeys,
     KEY_CONFIRM_SIZE, MLKEM768_CIPHERTEXT_BYTES, MLKEM768_PUBLIC_KEY_BYTES,
-    SERVER_HELLO_PAYLOAD_BYTES, ServerHandshakeState, client_begin_handshake,
+    SERVER_HELLO_PAYLOAD_BYTES, ServerHandshakeState, client_begin_handshake_for_identity,
     client_verify_server_confirm, server_accept_handshake,
 };
 

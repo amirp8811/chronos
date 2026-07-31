@@ -1,88 +1,83 @@
-# CHRONOS Architecture & Implementation Roadmap
+# CHRONOS Architecture and Status
 
-This document provides a deep dive into the technical design and the path to production for CHRONOS v7.0.
+CHRONOS separates protocol experiments from operational claims. A module being
+present in this repository does not mean it is ready for deployment. The status
+labels below are the authoritative description of current maturity.
 
----
+> **Deployment boundary:** CHRONOS is a research prototype, not a production
+> anonymity service. Its code and tests do not establish a real-world anonymity
+> guarantee.
 
-## 1. Architectural Vision
-CHRONOS solves the Anonymity Trilemma with a synchronous, multipath design. It utilizes:
-- **Zero-Copy Data-Plane**: Sub-millisecond packet processing via `AF_XDP` and `io_uring`.
-- **Multipath Erasure Coding**: (16,10) Reed-Solomon sharding to eliminate Head-of-Line (HoL) blocking.
-- **Synchronous TDM Mixing**: Constant-rate packet flushing to decouple ingress/egress timing.
+## Implemented protocol path
 
----
+The local test path is composed of the following components:
 
-## 2. Protocol Specifications
+1. **CHS7 handshake** — a server hello carries X25519 and ML-KEM-768 public
+   material signed by a stable Ed25519 relay identity. Clients must compare that
+   identity with an expected identity before creating a key share.
+2. **RTE7 route layer** — a sender wraps a payload once for each hop using
+   ChaCha20-Poly1305. Each relay authenticates its layer before recording replay
+   state, then either forwards a blinded packet identifier or emits a local
+   payload.
+3. **CRP7 relay envelope** — the UDP prototype carries route, data, shard,
+   acknowledgement, and error packets in a compact local envelope.
+4. **CHR7 secure cell** — fixed-size application cells authenticate metadata and
+   padded payloads. `SecureCellSender` owns monotonically increasing sequence
+   values for one key and route-tag domain.
+5. **SHARD-Stream codec** — a single in-memory block can be split into ten data
+   and six recovery shards. This is a codec, not a multipath transport service.
 
-### **CHR7 (Secure Cell)**
-Fixed 1,280-byte envelope.
-- `CHR7` Magic | Version | Flags | Payload Len | Route Tag | IV | Ciphertext (944B) | MAC (16B).
+## Explicitly bounded behaviour
 
-### **CHS7 (Handshake)**
-Hybrid PQC Key Exchange combining **ML-KEM-768** and **X25519**. Includes memory-bounded PoW for Anti-DoS.
+### Route replay cache
 
-### **CRP7 (Relay Packet)**
-Multi-type wire format: `Hello`, `Shard`, `Ack`, `Error`, `Route`, `Data`.
+Route replay entries are added only after successful authentication. The cache
+is bounded by count and time-to-live. When full, it evicts the oldest entry;
+that is a memory-safety trade-off, not a permanent replay guarantee. A relay
+operator must size and partition this cache for the traffic and trust boundary
+of a future deployment.
 
-### **RTE7 (Route Layer)**
-Onion-wrapped commands with per-hop ChaCha20-Poly1305 and packet-id blinding.
+### Proof-of-work admission
 
-**Routing modules (complementary, not alternatives):** `chronos-core/src/sphinx.rs`
-defines the Sphinx-PQC *wire-header format* (`SphinxPqcCell`, `SphinxOnionProcessor`);
-`chronos-core/src/route_layer.rs` provides circuit/session *orchestration*
-(layered route packets, per-hop packet-ID blinding, single-use reply blocks, replay
-state). `route_layer` is the forward path for circuit construction and peeling;
-`sphinx` supplies the header it wraps. Both remain public modules.
+The experimental UDP relay can issue stateless challenges bound to relay ID,
+client address, difficulty, time window, and a configured server secret. A
+challenge uses the current window; verification also accepts one prior window
+to tolerate ordinary delay. The daemon refuses to enable this feature unless a
+non-zero 32-byte secret is supplied through its configured environment variable.
+The implementation does not yet provide operational abuse detection or a
+production admission policy.
 
----
+### Send delay
 
-## 3. Implementation Status Matrix
+`chronosd` can delay each actual outbound send. This option is accurately named
+`send_delay_ms`: it does not run an independent slot scheduler, send cover
+cells, or maintain constant-rate egress. It must not be interpreted as timing
+indistinguishability.
 
-| Feature | Status | Note |
-| :--- | :--- | :--- |
-| **Sphinx Routing** | **[Implemented]** | Post-Quantum hybrid (ML-KEM/X25519). |
-| **Erasure Coding** | **[Implemented]** | (16,10) GF(2^8) Reed-Solomon. |
-| **Dataplane HAL** | **[Implemented]** | Isolated crate with Acquire/Release fences. |
-| **no_std Core** | **[Partial]** | `std` gated; needs clock trait migration. |
-| **AF_XDP/io_uring**| **[Partial]** | Abstractions ready; needs native-driver validation. |
-| **PIR Storage** | **[Prototype]** | Threshold DPF-PIR oblivious dead-drop. |
-| **BFT Consensus** | **[Prototype]** | Regional BLS Quorum logic. |
+## Status by subsystem
 
----
+| Subsystem | Status | Boundary |
+| --- | --- | --- |
+| Secure cells, replay windows, route layers | Implemented and tested | Local protocol primitives only; no external audit. |
+| Stable-identity handshake | Implemented and tested | Expected relay identities must be obtained by a deployment-specific trusted mechanism. |
+| Signed directory records | Implemented local API | The line protocol is local-only; consensus, authorization policy, and durable operational administration are not implemented. |
+| `chronos-core` no-`std` subset | Implemented and checked | Only allocation-friendly cryptographic/math modules are compiled without `std`; runtime services remain `std`-only. |
+| Erasure codec and adaptive mixing policy | Prototype | In-process algorithms and measurements, not network protection claims. |
+| Dataplane abstraction | Prototype interface | It is not a validated high-performance networking path. |
+| Client applications | Planned scaffolds | No supported mobile or browser client exists. |
+| Optional onion-header simulation | Simulation | It demonstrates header mutation only and is feature-gated; it is not part of the default API. |
 
-## 4. Production Roadmap
+## Optional simulation feature
 
-### Tier 1: Logic & Hardening (Completed)
-- [x] Sphinx & Galois Math.
-- [x] Hardened FFI Panic Barriers.
-- [x] Memory-Bounded PoW (Sliding-window epoch).
+The `simulation` feature contains `SphinxSimulationProcessor` and
+`SimulationOnionCell`. It is intentionally named and gated as a simulation. It
+uses a simple SHA-256-derived XOR header mutation and checksum for deterministic
+demonstrations. It has no authenticated per-hop security property and must not
+be used for traffic.
 
-### Tier 2: Performance & Audit (In Progress)
-- [x] Isolated HAL for kernel-bypass I/O.
-- [x] High-sample statistical leak auditing.
-- [ ] Formal Verification of Sphinx header unwrapping.
+## Validation posture
 
-### Tier 3: Global Deployment (Planned)
-- [ ] Native `AF_XDP` driver-mode integration.
-- [ ] Hardware-accelerated SIMD bitonic sorting.
-- [ ] Regional BLS Quorum Mesh deployment.
-
----
-
-## 4. Adaptive Mix Policy & Experimentation (Prototype)
-
-`chronos-core::mix_policy` implements load-aware batching:
-
-- **Profiles**: `Fast`, `Normal`, `HighAnonymity` (different K and max-wait).
-- **Decisions**: full threshold, reduced threshold, cover backfill, hold.
-- **Telemetry**: flush counts, cover overhead, bandwidth multiplier.
-
-`chronos-core::fountain` provides a small XOR fountain/sliding-window FEC
-prototype for progressive recovery comparisons against fixed Reed-Solomon (16,10).
-
-`chronos-core::anonymity_metrics` + `tools/chronos-nettest` produce MI, KL,
-entropy, latency CDFs, and FEC overhead CSVs for reproducible sweeps
-(`scripts/run_mix_experiments.sh`).
-
-
-
+The repository CI checks formatting, warnings, workspace tests with the locked
+dependency graph, the no-`std` core build, and local static policy checks.
+Fuzzing and external cryptographic review are valuable next steps, but neither
+has been completed as a release gate.

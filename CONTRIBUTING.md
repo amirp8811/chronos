@@ -1,33 +1,28 @@
 # Contributing to CHRONOS
 
-We welcome contributions from systems engineers, cryptographers, and privacy advocates.
+Contributions are welcome when they make the prototype more correct, explicit,
+and reviewable. Read the [implementation status](docs/ARCHITECTURE.md) and
+[security boundaries](SECURITY.md) before proposing a feature.
 
----
+## Before opening a pull request
 
-## 1. Getting Started
-1. Familiarize yourself with the **Anonymity Trilemma** and TDM mixnet models.
-2. Ensure you have the latest Rust toolchain installed.
-3. Check the **Implementation Status** in `docs/ARCHITECTURE.md` for open tasks.
+1. Keep the change focused and describe any public API or wire-format impact.
+2. Do not remove tests to hide a failure. Add a regression test for a security
+   or correctness fix where practical.
+3. Label simulated, planned, and unsupported behaviour accurately in code and
+   documentation.
+4. Run the required validation commands in [RULES.md](RULES.md).
 
-### Good First Issues
-- Standardizing logging in `chronos-lite`.
-- Adding unit tests for Galois field edge cases.
-- Improving the `mdBook` documentation site.
+Useful contribution areas include parser tests, boundary tests for protocol
+primitives, no-`std` compatibility, audit tooling, documentation clarity, and
+reproducible local experiments.
 
----
+## Governance
 
-## 2. Governance Model
-CHRONOS is governed with centralized architectural direction led by Amir P (@amirp8811). Major architectural decisions are made through GitHub RFCs.
+CHRONOS uses centralized architectural direction led by Amir P (@amirp8811).
+Major changes are discussed through repository issues and pull requests.
 
----
+## Conduct
 
-## 3. Code of Conduct
-We are committed to a harassment-free environment. All participants are expected to act professionally and respectfully. 
-
----
-
-## 4. Developer Automation
-The project uses a `Justfile` for common tasks:
-- `just docs`: Build the documentation book.
-- `just validate`: Run the security audit suite.
-- `just verify`: Run formal verification (requires Kani).
+All participants are expected to act professionally, respectfully, and in good
+faith. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).

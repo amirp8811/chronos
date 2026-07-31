@@ -1,58 +1,58 @@
-# CHRONOS — Repository Rules
+# CHRONOS Repository Rules
 
-Conventions every change must follow. These exist so the repo stays
-self-contained, internally consistent, and honest about its maturity.
+These conventions keep CHRONOS self-contained, internally consistent, and
+honest about its maturity.
 
-## 1. Documentation wording
-- **Define our terms independently.** Every CHRONOS-specific term (TDM,
-  SHARD-Stream, CRP7/CHS7/RTE7, DPF-PIR, escape architecture) is defined
-  in-repo the first time it appears. Do **not** assume the reader knows Tor,
-  mixnets, Sphinx, Loopix, Nym, HORNET, or any external system.
-- **No competitive scorecards.** Do not publish "X vs CHRONOS" comparison
-  tables. Prior art may be named in a neutral "Prior Art" note, but never
-  rated against CHRONOS.
-- **No absolute or unverifiable claims.** Ban "100% DoS Immunity",
-  "unassailable", "Flawless", "eradicates", "0% tag linkability",
-  "10/10 feasibility". Every claim traces to a test vector, benchmark, or a
-  clearly-labelled *design target*.
-- **State maturity honestly.** Top-level docs state the real status
-  (prototype / reference / production), matching the project status declared in
-  `README.md`.
-- **No dangling references.** Never link or name a repo/package that does not
-  exist yet. Fill the link or remove it.
+## Documentation
 
-## 2. Naming
-- Crate/binary names use hyphens: `chronos-core`, `chronos-dir`,
-  `chronos-lite`, `chronos-wasm`, `chronos-sys-dataplane`, `chronos-relay`
-  (the relay daemon; historically `chronosd`).
-- Protocol identifiers (CRP7, CHS7, RTE7, DPF) are self-defined in
-  `docs/PROTOCOLS.md` and listed there in one place.
-- Files/modules are `snake_case`; public types are `PascalCase`.
+- Define CHRONOS terms in this repository before relying on them. Do not assume
+  outside terminology or systems are familiar to the reader.
+- Do not publish competitive scorecards or comparison tables.
+- Do not make absolute or unverifiable privacy, security, performance, or
+  deployment claims. A claim must point to a test, benchmark, or clearly marked
+  design target.
+- State maturity precisely: implemented and tested, prototype, simulation,
+  planned, or unsupported. Top-level documents must match `README.md`.
+- Do not leave placeholder links, external dependency references, or unnamed
+  future repositories in user-facing documentation.
 
-## 3. Module & dependency boundaries
-- `chronos-core` is the only `no_std` crate and the single source of truth
-  for crypto + protocol primitives.
-- `chronos-sys-dataplane` is the only crate allowed `unsafe` (kernel-bypass).
-  Everything else talks to it through a safe interface.
-- Minimize external dependencies. No new dependency without a one-line
-  justification in the PR.
-- One routing layer is canonical (`route_layer` orchestrates; `sphinx`
-  defines the wire header). Don't expose both as the public path.
+## Naming and public API
 
-## 4. Code style (enforced by CI, not memory)
-- `rustfmt.toml` is authoritative; run `cargo fmt` before committing.
-- `#![deny(warnings)]` in CI via clippy (`-D warnings`).
-- `#![deny(unsafe_code)]` outside the HAL crate; `scripts/static_audit.py`
-  verifies this in CI.
-- No glob `pub use *::*` re-exports at a crate root — enumerate the public
-  API explicitly.
+- Crate and binary names use hyphens. Rust modules use `snake_case`; public
+  types use `PascalCase`.
+- Protocol identifiers are defined once in `docs/PROTOCOLS.md`.
+- `route_layer` is the supported route packet path. The optional onion-header
+  demonstration is feature-gated as a simulation and must never be described as
+  production cryptography.
+- Public AEAD construction APIs must guide callers toward stateful nonce or
+  sequence allocation. Explicit nonce/identifier APIs need a documented reason
+  and a test-vector or externally managed allocator use case.
 
-## 5. Process
-- Every change goes through a PR; CI (fmt + clippy + test + static audit) must
-  be green.
-- Tracking lives in **GitHub Issues**, not a checked-in TODO file. The release
-  checklist is tracked as GitHub Issues and milestones, not a backlog doc.
-- Commits follow `area: short summary` (e.g. `chronos-relay: fix replay window
-  under clock skew`).
-- Build artifacts (tarballs, `.VSCodeCounter/`) are never committed; release
-  binaries are published as GitHub Release assets.
+## Module and dependency boundaries
+
+- `chronos-core` is the source of truth for protocol primitives. Its no-`std`
+  claim applies only to modules built by `--no-default-features`.
+- `chronos-sys-dataplane` is the only crate allowed to contain `unsafe` code.
+  Other crate roots declare `#![deny(unsafe_code)]`.
+- New dependencies need a one-line justification in the pull request.
+- No glob re-exports at a crate root; enumerate public APIs explicitly.
+
+## Required validation
+
+Run before requesting review:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --locked
+cargo check -p chronos-core --no-default-features
+python3 scripts/static_audit.py
+```
+
+## Change process
+
+- Every change is reviewed through a pull request with passing CI.
+- Do not remove tests to hide failures. Add focused regression tests for
+  correctness or security fixes when practical.
+- Keep commits focused and describe breaking API changes in the pull request.
+- Do not commit build artifacts or credentials.

@@ -1,79 +1,65 @@
-# CHRONOS Security, Anonymity & Validation
+# CHRONOS Security Boundaries and Validation
 
-This document outlines the security invariants, anonymity parameters, and the 4-gate validation architecture.
+## Scope statement
 
----
+CHRONOS is an experimental codebase. It has not undergone an independent
+security assessment and is **not safe for production anonymity, safety-critical
+use, or protection of sensitive identities**. Tests demonstrate selected code
+properties; they do not prove anonymity or resistance to a network adversary.
 
-## 1. Security Invariants
-1. **Timing Indistinguishability**: Synchronous mixing and constant-rate pacing decouple timing.
-2. **Memory Isolation**: Physical separation of the cryptographic core and the unsafe HAL.
-3. **Panic Safety**: All WASM/Mobile entry points are protected by `catch_unwind` barriers.
+## Implemented security invariants
 
----
+The following invariants are covered by unit tests where practical:
 
-## 2. Anonymity Parameters (v7.0)
-- **Mixing Threshold (K)**: 25,000 packets.
-- **Max Batch Latency**: 50ms (Adaptive flushing via `mix_policy`).
-- **Differential Privacy**: Epsilon ($\epsilon$) targeted at 0.1 per epoch with Laplace noise.
+- Secure cells authenticate metadata and ciphertext before plaintext is exposed.
+- Receive replay state advances only after cell authentication succeeds.
+- Route replay state advances only after the route layer authenticates and
+  parses successfully.
+- Route packet identifiers are blinded between hops; the safe builder obtains a
+  fresh identifier from an operating-system random source.
+- Client handshakes require a caller-supplied expected stable relay identity,
+  rather than accepting any self-signed hello.
+- The UDP relay serves its persisted node identity for hello requests; it does
+  not create a new relay identity per connection.
+- Directory records require non-zero public material, a valid self-signature,
+  and an unexpired bounded lifetime on the default API path.
+- Proof-of-work challenge tokens bind relay ID, client address, difficulty, and
+  time window to a configured server secret. Spent challenge-token/nonce pairs
+  are rejected while retained.
 
----
+## Known limits
 
-## 3. Validation Architecture (The 4 Gates)
+- No external cryptographic, protocol, or implementation audit has been
+  completed.
+- Bounded replay caches can forget old entries under expiry or capacity
+  pressure. This is documented behaviour, not a complete replay defense.
+- Relay identity distribution, key rotation, revocation, and directory
+  authorization are not designed as a deployable system.
+- The relay's optional send delay does not generate cover traffic and does not
+  establish constant-rate traffic shaping.
+- Local metrics and simulations are engineering experiments, not privacy
+  proofs.
+- Client apps, directory consensus, and high-performance dataplane paths are
+  not supported deployments.
 
-### Gate 1: Logic & Correctness
-- Functional Tests: `cargo test`
-- Logic Fuzzing: `cargo fuzz run relay_packet`
-
-### Gate 2: Lifecycle & Concurrency
-- `loom` tests for ring atomics in the HAL.
-- `cargo fuzz run dataplane_lifecycle`.
-
-### Gate 3: Virtualized Topology
-- Namespace/veth simulation with bursty impairment via `setup_virtual_topology.sh`.
-
-### Gate 4: Macroscopic Leak Auditing
-- Statistical analysis of 100,000+ packet traces.
-- Metrics: **Mutual Information (MI)**, **KL Divergence**, and **Egress Entropy**.
-
----
-
-## 4. Warrant Canary
-CHRONOS maintainers have received:
-1. **NO** secret subpoenas.
-2. **NO** National Security Letters (NSLs).
-3. **NO** forced backdoor installations.
-
-*Last Updated: 2026-07-08*
-
----
-
-## 5. Responsible Disclosure
-Vulnerabilities should be reported privately to `amirp8811@gmail.com`.
-
----
-
-## 6. Measurable Experiment Hooks (Prototype)
-
-The following are **engineering metrics**, not anonymity proofs. They live in
-`chronos_core::anonymity_metrics` and are exercised by `chronos-nettest`:
-
-| Metric | Meaning | How to run |
-| --- | --- | --- |
-| Mutual information (timing) | Coarse GPA correlator between ingress/egress timestamps | `CHRONOS_NETTEST_MODE=leak-audit` |
-| Egress interval entropy | Diversity of inter-departure times | mix-sweep / leak-audit |
-| KL vs constant-rate | Distance of egress timing from ideal constant pacing | mix-sweep |
-| Latency CDF (p50/p95/p99) | End-to-end hold time under adaptive mix profiles | mix-sweep |
-| Bandwidth multiplier | `(real + cover) / real` bytes or packets | mix-sweep / smoke |
-
-### Adversary scopes currently modeled in software
-
-1. **Local passive observer** on a single hop: sees arrival/departure times and lengths.
-2. **Simulated mix batching**: adaptive K / max-wait / cover backfill (`MixProfile::{Fast,Normal,HighAnonymity}`).
-3. **Not yet modeled**: multi-hop GPA with colluding relays, active confirmation attacks, or directory query leakage.
-
-Reproducible sweeps:
+## Validation commands
 
 ```bash
-bash scripts/run_mix_experiments.sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --locked
+cargo check -p chronos-core --no-default-features
+python3 scripts/static_audit.py
 ```
 
+The repository also contains fuzz targets where a compatible fuzzing toolchain
+is available. They are useful for finding parser faults, but they are not a
+substitute for review.
+
+## Reporting a vulnerability
+
+Please report suspected vulnerabilities privately to
+[amirp8811@gmail.com](mailto:amirp8811@gmail.com). Include affected revision,
+reproduction steps, impact assessment, and any relevant test input. Please do
+not publish exploit details before a maintainer has had a reasonable opportunity
+to investigate.

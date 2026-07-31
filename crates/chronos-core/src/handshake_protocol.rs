@@ -374,12 +374,20 @@ pub struct ServerHandshakeState {
     transcript_hash: [u8; 32],
 }
 
-pub fn client_begin_handshake(
+/// Begins a client handshake after pinning the relay's stable Ed25519 identity.
+///
+/// A valid self-signature alone is not sufficient: without this comparison an
+/// active peer can substitute its own identity and transport keys.
+pub fn client_begin_handshake_for_identity(
     server_hello: &HandshakePacket,
+    expected_identity: &[u8; ED25519_PUBLIC_KEY_BYTES],
     client_x25519: &X25519NodeSecret,
 ) -> Result<(HandshakePacket, ClientHandshakeState), HandshakeError> {
     ensure_supported_suite(server_hello)?;
-    let server_keys = HandshakePublicKeys::from_server_hello_packet(server_hello)?;
+    let server_keys = HandshakePublicKeys::from_server_hello_packet_for_identity(
+        server_hello,
+        expected_identity,
+    )?;
     let server_hello_bytes = server_hello.encode()?;
     let init = encapsulate_route_secret(
         &server_keys.ml_kem_public,
@@ -509,14 +517,22 @@ mod tests {
         X25519NodeSecret::from_bytes([0xC9; 32])
     }
 
+    fn expected_identity(keys: &NodeKeyMaterial) -> [u8; ED25519_PUBLIC_KEY_BYTES] {
+        keys.identity_signing.verifying_key().to_bytes()
+    }
+
     #[test]
     fn handshake_establishes_same_route_secret_and_confirms() {
         let server_keys = server_keys();
         let server_hello = HandshakePublicKeys::from_node_keys(&server_keys)
             .to_server_hello_packet()
             .expect("hello");
-        let (client_share, client_state) =
-            client_begin_handshake(&server_hello, &client_x()).expect("client begin");
+        let (client_share, client_state) = client_begin_handshake_for_identity(
+            &server_hello,
+            &expected_identity(&server_keys),
+            &client_x(),
+        )
+        .expect("client begin");
         let (confirm, server_state) =
             server_accept_handshake(&server_hello, &client_share, &server_keys).expect("server");
 
@@ -530,8 +546,12 @@ mod tests {
         let mut server_hello = HandshakePublicKeys::from_node_keys(&server_keys)
             .to_server_hello_packet()
             .expect("hello");
-        let (client_share, client_state) =
-            client_begin_handshake(&server_hello, &client_x()).expect("client begin");
+        let (client_share, client_state) = client_begin_handshake_for_identity(
+            &server_hello,
+            &expected_identity(&server_keys),
+            &client_x(),
+        )
+        .expect("client begin");
         server_hello.suite = 99;
         assert!(matches!(
             server_accept_handshake(&server_hello, &client_share, &server_keys),
@@ -558,7 +578,12 @@ mod tests {
         .expect("unsigned hello");
 
         assert!(
-            client_begin_handshake(&unsigned, &client_x()).is_err(),
+            client_begin_handshake_for_identity(
+                &unsigned,
+                &expected_identity(&server_keys),
+                &client_x()
+            )
+            .is_err(),
             "CHS7 accepted an unsigned ServerHello; ephemeral server shares must be identity-authenticated"
         );
     }
@@ -573,6 +598,35 @@ mod tests {
             HandshakePublicKeys::from_server_hello_packet_for_identity(&hello, &[0xEE; 32]),
             Err(HandshakeError::IdentityMismatch)
         ));
+    }
+
+    #[test]
+    fn client_rejects_valid_hello_from_unexpected_identity() {
+        let actual_server = server_keys();
+        let different_server = NodeKeyMaterial {
+            x25519: X25519NodeSecret::from_bytes([0xD1; 32]),
+            ml_kem_768: MlKem768RouteKeypair::from_seed_bytes([0xD2; 64]),
+            identity_signing: ed25519_dalek::SigningKey::from_bytes(&[0xD3; 32]),
+        };
+        let hello = HandshakePublicKeys::from_node_keys(&actual_server)
+            .to_server_hello_packet()
+            .expect("signed hello");
+        assert_eq!(
+            client_begin_handshake_for_identity(
+                &hello,
+                &expected_identity(&different_server),
+                &client_x()
+            ),
+            Err(HandshakeError::IdentityMismatch)
+        );
+        assert!(
+            client_begin_handshake_for_identity(
+                &hello,
+                &expected_identity(&actual_server),
+                &client_x()
+            )
+            .is_ok()
+        );
     }
 
     #[test]
@@ -625,8 +679,12 @@ mod tests {
         let server_hello = HandshakePublicKeys::from_node_keys(&server_keys)
             .to_server_hello_packet()
             .expect("hello");
-        let (_, client_state) =
-            client_begin_handshake(&server_hello, &client_x()).expect("client begin");
+        let (_, client_state) = client_begin_handshake_for_identity(
+            &server_hello,
+            &expected_identity(&server_keys),
+            &client_x(),
+        )
+        .expect("client begin");
         let wrong =
             HandshakePacket::new(HandshakePacketType::Error, b"no".to_vec()).expect("wrong");
         assert_eq!(

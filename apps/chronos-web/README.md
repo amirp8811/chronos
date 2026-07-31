@@ -1,15 +1,18 @@
-# CHRONOS web app integration plan
+# CHRONOS browser demonstration
 
-The current `index.html` is a static demo dashboard. The Rust crate now exposes
-minimal wasm-bindgen functions in `chronos-wasm::bindings`:
+`index.html` is a static, local demonstration page. It is **not** a browser
+client, relay connection, anonymity measurement, or privacy proof.
 
-- `chronos_wasm_version()`
-- `chronos_plan_tdm_slots(slots, data_cells, cover_when_idle)`
-- `chronos_secure_cell_self_test(message)`
+If a locally built `chronos-wasm` bundle is placed in `pkg/`, the page can run
+one exposed secure-cell self-test. That result only demonstrates the local test
+function; it does not establish transport or network security.
 
-Next browser work:
+## Current status
 
-1. Build `chronos-wasm` for `wasm32-unknown-unknown` with `wasm-bindgen`.
-2. Load the generated JS/WASM bundle from this app.
-3. Replace simulated console actions with calls into the WASM exports.
-4. Add WebTransport/WebSocket transport adapters after the local protocol stabilizes.
+| Item | Status |
+| --- | --- |
+| Static page and local probe button | Implemented demonstration |
+| WebAssembly bundle build | Manual development step |
+| Network transport | Not implemented |
+| Relay discovery and identity distribution | Not implemented |
+| Production browser client | Unsupported |

@@ -1,11 +1,9 @@
 //! Authenticated layered route packet primitive.
 //!
-//! This module replaces the old SHA-256/XOR Sphinx simulation path with a
-//! concrete, testable onion-route building block. It is not a complete academic
-//! Sphinx implementation, but it now includes the core production semantics the
-//! rest of the workspace can build on: per-hop AEAD, packet-id blinding, typed
-//! route commands, single-use reply blocks, route replay state, and relay-packet
-//! serialization.
+//! This module provides the local prototype's per-hop authenticated route
+//! wrapping, identifier blinding, and bounded replay state. It is not a
+//! complete anonymity system; callers must use the documented stateful builders
+//! and deployment-specific identity and replay policies.
 
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -36,6 +34,7 @@ pub enum RouteLayerError {
     InvalidLength { declared: usize, available: usize },
     InvalidReservedBytes,
     KeyDerivation,
+    Randomness,
     AuthenticationFailed,
     Replay { packet_id: u64, hop_index: u8 },
     ReplyBlockAlreadyUsed,
@@ -163,6 +162,13 @@ pub struct PeeledRouteLayer {
     pub payload: Option<Vec<u8>>,
 }
 
+/// Bounded replay cache for authenticated route packets.
+///
+/// Entries are retained for `ttl` or until `max_entries` is reached. Capacity
+/// eviction is deliberate: it bounds memory under flooding, but packets evicted
+/// early can be accepted again before their TTL expires. Deployments requiring a
+/// strict replay guarantee must provision the cache for their traffic window or
+/// partition replay state by authenticated session/source.
 #[derive(Debug, Clone)]
 pub struct RouteReplayCache {
     seen: HashMap<(u64, u8), Instant>,
@@ -264,8 +270,45 @@ impl RouteLayerProcessor {
         expected_hop_index: u8,
         hop_secret: &RouteHopSecret,
     ) -> Result<PeeledRouteLayer, RouteLayerError> {
+        // Authentication must happen before the packet is remembered. Otherwise
+        // an unauthenticated forgery could reserve an identifier and deny the
+        // legitimate packet that carries it.
+        let peeled = peel_route_layer(packet, expected_hop_index, hop_secret)?;
         self.replay.observe(packet)?;
-        peel_route_layer(packet, expected_hop_index, hop_secret)
+        Ok(peeled)
+    }
+}
+
+/// Generates a fresh, CSPRNG-backed route packet identifier for every build.
+///
+/// This is the safe route-construction API. The lower-level
+/// `build_layered_route_packet` remains available for deterministic test vectors
+/// and interoperating with an externally managed identifier allocator; callers
+/// of that function are responsible for never reusing an identifier with the
+/// same hop secrets.
+#[derive(Debug, Clone)]
+pub struct RoutePacketBuilder {
+    hop_secrets: Vec<RouteHopSecret>,
+    commands: Vec<RouteCommand>,
+}
+
+impl RoutePacketBuilder {
+    pub fn new(hop_secrets: Vec<RouteHopSecret>, commands: Vec<RouteCommand>) -> Self {
+        Self {
+            hop_secrets,
+            commands,
+        }
+    }
+
+    pub fn build(&self, payload: &[u8]) -> Result<LayeredRoutePacket, RouteLayerError> {
+        let mut packet_id_bytes = [0u8; 8];
+        getrandom::getrandom(&mut packet_id_bytes).map_err(|_| RouteLayerError::Randomness)?;
+        build_layered_route_packet(
+            u64::from_be_bytes(packet_id_bytes),
+            &self.hop_secrets,
+            &self.commands,
+            payload,
+        )
     }
 }
 
@@ -300,8 +343,14 @@ impl SingleUseReplyBlock {
     }
 }
 
-/// Build a route packet by wrapping `payload` in one authenticated layer per hop.
-/// `commands[i]` is revealed only to hop `i` when it peels its layer.
+const ROUTE_LAYER_WRAPPING_OVERHEAD: usize = ROUTE_LAYER_HEADER_SIZE + 18 + ROUTE_LAYER_TAG_SIZE;
+
+/// Build a route packet with a caller-provided identifier.
+///
+/// `commands[i]` is revealed only to hop `i` when it peels its layer. This is a
+/// low-level API for deterministic test vectors or a caller-owned monotonic
+/// identifier allocator. Reusing `packet_id` with the same hop secret reuses an
+/// AEAD nonce; production callers should use `RoutePacketBuilder::build`.
 pub fn build_layered_route_packet(
     packet_id: u64,
     hop_secrets: &[RouteHopSecret],
@@ -323,9 +372,27 @@ pub fn build_layered_route_packet(
             max: u8::MAX as usize,
         });
     }
-    if payload.len() > ROUTE_LAYER_MAX_BODY {
+    // A layer adds its fixed header, command metadata, and authentication tag.
+    // Validate the final wire body up front so a multi-hop build cannot fail only
+    // after it has already processed inner layers.
+    let wrapping_overhead = hop_secrets
+        .len()
+        .checked_mul(ROUTE_LAYER_WRAPPING_OVERHEAD)
+        .ok_or(RouteLayerError::BodyTooLarge {
+            got: usize::MAX,
+            max: ROUTE_LAYER_MAX_BODY,
+        })?;
+    let final_body_len =
+        payload
+            .len()
+            .checked_add(wrapping_overhead)
+            .ok_or(RouteLayerError::BodyTooLarge {
+                got: usize::MAX,
+                max: ROUTE_LAYER_MAX_BODY,
+            })?;
+    if final_body_len > ROUTE_LAYER_MAX_BODY {
         return Err(RouteLayerError::BodyTooLarge {
-            got: payload.len(),
+            got: final_body_len,
             max: ROUTE_LAYER_MAX_BODY,
         });
     }
@@ -682,6 +749,89 @@ mod tests {
             peel_route_layer(&packet, 0, &secrets()[0]),
             Err(RouteLayerError::AuthenticationFailed)
         );
+    }
+
+    #[test]
+    fn tampering_does_not_poison_replay_cache_and_authenticated_replay_is_rejected() {
+        let packet =
+            build_layered_route_packet(100, &secrets(), &commands(), b"payload").expect("build");
+        let mut tampered = packet.clone();
+        let last = tampered.body.len() - 1;
+        tampered.body[last] ^= 0x80;
+
+        let mut processor = RouteLayerProcessor::new();
+        assert_eq!(
+            processor.peel_once(&tampered, 0, &secrets()[0]),
+            Err(RouteLayerError::AuthenticationFailed)
+        );
+        assert!(processor.replay.is_empty());
+
+        processor
+            .peel_once(&packet, 0, &secrets()[0])
+            .expect("valid packet remains acceptable after forgery");
+        assert_eq!(
+            processor.peel_once(&packet, 0, &secrets()[0]),
+            Err(RouteLayerError::Replay {
+                packet_id: packet.packet_id,
+                hop_index: packet.hop_index,
+            })
+        );
+    }
+
+    #[test]
+    fn replay_keys_are_per_hop_after_packet_id_blinding() {
+        let packet =
+            build_layered_route_packet(101, &secrets(), &commands(), b"payload").expect("build");
+        let mut first_processor = RouteLayerProcessor::new();
+        let first = first_processor
+            .peel_once(&packet, 0, &secrets()[0])
+            .expect("first hop");
+        let next = first.next_packet.expect("forward packet");
+
+        let mut second_processor = RouteLayerProcessor::new();
+        second_processor
+            .peel_once(&next, 1, &secrets()[1])
+            .expect("second hop uses blinded id");
+        assert_eq!(
+            second_processor.peel_once(&next, 1, &secrets()[1]),
+            Err(RouteLayerError::Replay {
+                packet_id: next.packet_id,
+                hop_index: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn route_packet_builder_generates_distinct_packet_ids_and_nonces() {
+        let builder = RoutePacketBuilder::new(secrets(), commands());
+        let first = builder.build(b"payload").expect("first");
+        let second = builder.build(b"payload").expect("second");
+        assert_ne!(first.packet_id, second.packet_id);
+        assert_ne!(first.body, second.body);
+    }
+
+    #[test]
+    fn route_build_checks_final_wrapped_body_size_before_encryption() {
+        let one_hop = vec![RouteHopSecret([7; 32])];
+        let command = vec![RouteCommand::deliver_local()];
+        let max_payload = ROUTE_LAYER_MAX_BODY - ROUTE_LAYER_WRAPPING_OVERHEAD;
+        build_layered_route_packet(1, &one_hop, &command, &vec![0; max_payload])
+            .expect("exact boundary");
+        assert_eq!(
+            build_layered_route_packet(2, &one_hop, &command, &vec![0; max_payload + 1]),
+            Err(RouteLayerError::BodyTooLarge {
+                got: ROUTE_LAYER_MAX_BODY + 1,
+                max: ROUTE_LAYER_MAX_BODY,
+            })
+        );
+
+        let three_hop_max = ROUTE_LAYER_MAX_BODY - (3 * ROUTE_LAYER_WRAPPING_OVERHEAD);
+        build_layered_route_packet(3, &secrets(), &commands(), &vec![0; three_hop_max])
+            .expect("three-hop exact boundary");
+        assert!(matches!(
+            build_layered_route_packet(4, &secrets(), &commands(), &vec![0; three_hop_max + 1]),
+            Err(RouteLayerError::BodyTooLarge { .. })
+        ));
     }
 
     #[test]

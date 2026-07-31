@@ -31,6 +31,7 @@ impl PowChallenge {
         h.update(b"chronos-v7-pow-token");
         h.update(relay_id);
         h.update(unix_window.to_be_bytes());
+        h.update(difficulty_zero_bits.to_be_bytes());
         h.update(client_id);
         h.update(server_secret);
         Self {
@@ -95,11 +96,13 @@ impl PowAdmissionCache {
         nonce: &[u8],
     ) -> Result<(), PowAdmissionError> {
         self.prune_expired();
-        if self.seen.contains_key(nonce) {
+        let mut key = Vec::with_capacity(challenge.token.len() + nonce.len());
+        key.extend_from_slice(&challenge.token);
+        key.extend_from_slice(nonce);
+        if self.seen.contains_key(&key) {
             return Err(PowAdmissionError::Replay);
         }
         challenge.verify(nonce)?;
-        let key = nonce.to_vec();
         self.seen.insert(key.clone(), Instant::now());
         self.order.push_back(key);
         while self.seen.len() > self.max_entries {
@@ -165,6 +168,21 @@ mod tests {
         let nonce = solve_pow_for_tests(&c, 100_000).expect("solve");
         c.verify(&nonce).expect("verify");
     }
+    #[test]
+    fn challenge_token_binds_secret_client_difficulty_and_window() {
+        let relay_id = [6; 16];
+        let a = PowChallenge::new_stateless(relay_id, 10, 8, b"client-a", b"alpha");
+        let changed_secret = PowChallenge::new_stateless(relay_id, 10, 8, b"client-a", b"bravo");
+        let changed_client = PowChallenge::new_stateless(relay_id, 10, 8, b"client-b", b"alpha");
+        let changed_difficulty =
+            PowChallenge::new_stateless(relay_id, 10, 9, b"client-a", b"alpha");
+        let changed_window = PowChallenge::new_stateless(relay_id, 11, 8, b"client-a", b"alpha");
+        assert_ne!(a.token, changed_secret.token);
+        assert_ne!(a.token, changed_client.token);
+        assert_ne!(a.token, changed_difficulty.token);
+        assert_ne!(a.token, changed_window.token);
+    }
+
     #[test]
     fn pow_cache_rejects_replay() {
         let c = PowChallenge {

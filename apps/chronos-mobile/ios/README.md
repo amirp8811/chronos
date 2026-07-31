@@ -1,10 +1,5 @@
-# CHRONOS iOS client scaffold
+# CHRONOS mobile platform scaffold
 
-Planned native integration points:
-
-- Keychain-backed node/session key storage.
-- Network.framework UDP/WebSocket transport adapter for CRP7 packets.
-- Foreground-only route setup using CHS7 handshake.
-- Background-safe notification/wake policy pending platform review.
-
-This directory is currently a scaffold; no Swift target is implemented yet.
+This directory reserves a location for a future native mobile integration. No
+build target, runtime, transport adapter, or key-storage implementation exists
+today. It is not a supported client.

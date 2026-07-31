@@ -1,6 +1,15 @@
 //! Galois Field GF(2^8) Reed-Solomon (16, 10) Erasure Coding & Asymmetric Symbol Alignment.
 //! CHRONOS-SPEC-v7.0 Section 1.4 & 2.2
 
+#[cfg(not(feature = "std"))]
+use alloc::format;
+#[cfg(not(feature = "std"))]
+use alloc::string::{String, ToString};
+#[cfg(not(feature = "std"))]
+use alloc::vec;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 pub const PRIMITIVE_POLYNOMIAL_MASK_0X1D: u8 = 0x1D;
 
 /// Galois Field GF(2^8) multiplication enforcing primitive reduction mask 0x1D.

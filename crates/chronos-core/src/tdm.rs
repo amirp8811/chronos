@@ -1,7 +1,8 @@
-//! Constant-rate/TDM pacing primitives.
+//! Deterministic time-slot planning model.
 //!
-//! This is a deterministic scheduler used by tests and relay prototypes. It does
-//! not sleep or perform I/O; callers use the returned plan to pace real sends.
+//! This module returns a model of data and optional cover slots for tests and
+//! experiments. It does not sleep, perform I/O, or create constant-rate network
+//! egress on its own.
 
 use std::time::Duration;
 

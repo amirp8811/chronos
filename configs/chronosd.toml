@@ -1,41 +1,31 @@
-# Production Configuration for Bare-Metal Core Relay (`chronosd`)
-# CHRONOS-SPEC-v7.0 Section 3.1 & 5.1
+# Example configuration for the experimental chronosd relay.
+# This file is not a production deployment profile.
 
 [node]
-node_name = "equinix-london-relay-01"
-node_id_fp = "7z9k2m4x8v1w3y5z6a0b.chr"
-operating_role = "core_relay" # Options: "guard", "core_relay", "egress_gateway"
-jurisdiction = "GB (United Kingdom)"
+node_name = "local-relay"
+node_id_fp = "local-relay.chr"
+operating_role = "relay"
+jurisdiction = "local"
 
 [data_plane]
-interface = "eth0"
-auto_negotiate_driver = true
-# Tier 1: af_xdp_zero_copy (Bare-metal Intel/Mellanox)
-# Tier 2: io_uring_sqpoll (AWS EC2 ENA / virtio-net)
-preferred_engine = "af_xdp_zero_copy"
-umem_pool_size_mb = 64
-hugepage_alignment_kb = 4
+interface = "lo"
+preferred_engine = "tokio_udp"
 
 [hardware_hardening]
-enable_resctrl_l3_locking = true
+enable_resctrl_l3_locking = false
 l3_cache_slice_mb = 4.0
-enable_toeplitz_salt_shuffling = true
+enable_toeplitz_salt_shuffling = false
 toeplitz_rss_threshold_req_sec = 31250
 
 [security]
-enable_pow_client_puzzles = true
-pow_default_difficulty_zero_bits = 16
-pow_ddos_flood_difficulty_zero_bits = 24
-cuckoo_sram_allocation_mb = 2.0
-enable_stateless_quic_retry_cookies = true
-
-[key_ratchet]
-volume_trigger_datagrams = 65536 # ~83.8 MB
-temporal_trigger_seconds = 60.0
-
+# Enabling PoW requires this environment variable to contain 64 hexadecimal
+# characters (32 non-zero bytes). No secret belongs in this file.
+enable_pow_client_puzzles = false
+pow_secret_env = "CHRONOSD_POW_SECRET_HEX"
+pow_window_seconds = 30
+pow_default_difficulty_zero_bits = 8
 
 [runtime]
-# Optional local prototype service settings. Environment variables override these in the daemon.
 key_dir = ".chronosd-keys"
 # udp_relay_bind = "127.0.0.1:7000"
 static_routes = ""
@@ -43,7 +33,7 @@ route_secrets = ""
 route_replay_max_entries = 4096
 route_replay_ttl_seconds = 300
 outbound_queue_max = 1024
-# Optional prototype pacing: 0 disables live sleeps; non-zero sleeps before each UDP send.
-tdm_slot_ms = 0
+# Best-effort delay only; it does not provide constant-rate egress or cover traffic.
+send_delay_ms = 0
 # metrics_bind = "127.0.0.1:9100"
 enforce_sessions = false

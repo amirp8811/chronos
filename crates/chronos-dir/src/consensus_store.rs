@@ -35,6 +35,7 @@ pub enum ConsensusStoreError {
     UnknownValidator(String),
     InvalidSignature(String),
     DuplicateVote(String),
+    InvalidRecord,
     InsufficientQuorum { got: usize, need: usize },
 }
 
@@ -93,7 +94,9 @@ impl ConsensusDirectory {
             });
         }
         signers.sort();
-        self.store.upsert(record);
+        self.store
+            .upsert(record)
+            .map_err(|_| ConsensusStoreError::InvalidRecord)?;
         Ok(QuorumCertificate {
             record_digest: digest,
             signer_ids: signers,

@@ -24,8 +24,11 @@ pub struct ChronosdConfig {
     pub outbound_queue_max: usize,
     pub metrics_bind: Option<String>,
     pub enforce_sessions: bool,
-    pub tdm_slot_ms: u64,
+    pub send_delay_ms: u64,
     pub enable_pow_client_puzzles: bool,
+    /// Name of an environment variable containing a 32-byte hexadecimal PoW secret.
+    pub pow_secret_env: Option<String>,
+    pub pow_window_seconds: u64,
     pub pow_default_difficulty_zero_bits: u32,
 }
 
@@ -51,8 +54,10 @@ impl Default for ChronosdConfig {
             outbound_queue_max: 1024,
             metrics_bind: None,
             enforce_sessions: false,
-            tdm_slot_ms: 0,
+            send_delay_ms: 0,
             enable_pow_client_puzzles: false,
+            pow_secret_env: None,
+            pow_window_seconds: 30,
             pow_default_difficulty_zero_bits: 8,
         }
     }
@@ -175,8 +180,10 @@ fn apply_scalar(cfg: &mut ChronosdConfig, key: &str, value: &str) -> Result<(), 
         "runtime.outbound_queue_max" => cfg.outbound_queue_max = parse_usize(value)?,
         "runtime.metrics_bind" => cfg.metrics_bind = Some(parse_string(value)?),
         "runtime.enforce_sessions" => cfg.enforce_sessions = parse_bool(value)?,
-        "runtime.tdm_slot_ms" => cfg.tdm_slot_ms = parse_u64(value)?,
+        "runtime.send_delay_ms" => cfg.send_delay_ms = parse_u64(value)?,
         "security.enable_pow_client_puzzles" => cfg.enable_pow_client_puzzles = parse_bool(value)?,
+        "security.pow_secret_env" => cfg.pow_secret_env = Some(parse_string(value)?),
+        "security.pow_window_seconds" => cfg.pow_window_seconds = parse_u64(value)?,
         "security.pow_default_difficulty_zero_bits" => {
             cfg.pow_default_difficulty_zero_bits = parse_u64(value)? as u32;
         }
@@ -205,6 +212,9 @@ enable_resctrl_l3_locking = true
 l3_cache_slice_mb = 8.0
 enable_toeplitz_salt_shuffling = true
 toeplitz_rss_threshold_req_sec = 123
+[security]
+pow_secret_env = "CHRONOSD_POW_SECRET_HEX"
+pow_window_seconds = 45
 [runtime]
 key_dir = "/tmp/chronosd-test"
 udp_relay_bind = "127.0.0.1:7000"
@@ -212,7 +222,7 @@ static_routes = "1=127.0.0.1:7001"
 route_replay_max_entries = 9
 route_replay_ttl_seconds = 10
 outbound_queue_max = 7
-tdm_slot_ms = 2
+send_delay_ms = 2
 "#,
         )
         .expect("cfg");
@@ -220,7 +230,12 @@ tdm_slot_ms = 2
         assert_eq!(cfg.udp_relay_bind.as_deref(), Some("127.0.0.1:7000"));
         assert_eq!(cfg.route_replay_max_entries, 9);
         assert_eq!(cfg.outbound_queue_max, 7);
-        assert_eq!(cfg.tdm_slot_ms, 2);
+        assert_eq!(cfg.send_delay_ms, 2);
+        assert_eq!(
+            cfg.pow_secret_env.as_deref(),
+            Some("CHRONOSD_POW_SECRET_HEX")
+        );
+        assert_eq!(cfg.pow_window_seconds, 45);
         assert!(cfg.enable_resctrl_l3_locking);
     }
     #[test]

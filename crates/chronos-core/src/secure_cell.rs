@@ -1,15 +1,16 @@
 //! Versioned fixed-size authenticated SHARD cell primitive.
 //!
-//! This is the first production-oriented packet primitive in the workspace. It
-//! does **not** implement the full CHRONOS Sphinx-PQC route construction yet;
-//! instead it provides the fixed 1,200-byte application-cell envelope with real
-//! AEAD authentication/encryption so higher layers can stop relying on the older
-//! SHA-256/XOR simulation path.
+//! This module provides a fixed 1,200-byte application-cell envelope with
+//! authenticated encryption. It is a tested protocol primitive, not a complete
+//! transport or anonymity system.
 
 use chacha20poly1305::aead::{AeadInPlace, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce, Tag};
 use hkdf::Hkdf;
 use sha2::Sha256;
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 use crate::framing::APP_CELL_PAYLOAD_SIZE;
 
@@ -35,6 +36,7 @@ pub enum SecureCellError {
     ReservedBytesNonZero,
     InvalidPayloadLength(u16),
     AuthenticationFailed,
+    SequenceExhausted,
 }
 
 /// Derive a 32-byte AEAD link key from a per-link shared secret plus route tag.
@@ -87,6 +89,12 @@ pub struct SecureShardCell {
 }
 
 impl SecureShardCell {
+    /// Encrypt with an externally supplied sequence number.
+    ///
+    /// This low-level primitive is for protocol adapters that already own a
+    /// durable, monotonic sequence allocator. Reusing `seq` with the same key
+    /// and route tag reuses a ChaCha20-Poly1305 nonce. New code should use
+    /// `SecureCellSender`, which allocates each sequence exactly once.
     pub fn encrypt(
         key: &[u8; 32],
         route_tag: [u8; 16],
@@ -210,6 +218,48 @@ impl SecureShardCell {
         aad[24..36].copy_from_slice(&self.seq_iv);
         aad[36..].copy_from_slice(&self.reserved);
         aad
+    }
+}
+
+/// Stateful sender for a single `(key, route_tag)` AEAD domain.
+///
+/// The sender advances its sequence after every successful seal. It must be
+/// retained for the lifetime of that AEAD domain; constructing a second sender
+/// with the same key and route tag at sequence zero would defeat nonce
+/// uniqueness. Restored sessions should use `with_next_sequence` with a durable
+/// high-water mark.
+#[derive(Debug, Clone)]
+pub struct SecureCellSender {
+    key: [u8; 32],
+    route_tag: [u8; 16],
+    next_sequence: u64,
+}
+
+impl SecureCellSender {
+    pub fn new(key: [u8; 32], route_tag: [u8; 16]) -> Self {
+        Self::with_next_sequence(key, route_tag, 0)
+    }
+
+    pub fn with_next_sequence(key: [u8; 32], route_tag: [u8; 16], next_sequence: u64) -> Self {
+        Self {
+            key,
+            route_tag,
+            next_sequence,
+        }
+    }
+
+    pub fn next_sequence(&self) -> u64 {
+        self.next_sequence
+    }
+
+    pub fn seal(&mut self, flags: u8, payload: &[u8]) -> Result<SecureShardCell, SecureCellError> {
+        if self.next_sequence == u64::MAX {
+            return Err(SecureCellError::SequenceExhausted);
+        }
+        let sequence = self.next_sequence;
+        let cell = SecureShardCell::encrypt(&self.key, self.route_tag, sequence, flags, payload)?;
+        self.next_sequence += 1;
+        Ok(cell)
     }
 }
 
@@ -373,6 +423,27 @@ mod tests {
             SecureShardCell::encrypt(&key, [1u8; 16], 45, 0, &payload),
             Err(SecureCellError::PayloadTooLarge { .. })
         ));
+    }
+
+    #[test]
+    fn stateful_sender_allocates_unique_nonces() {
+        let key = test_key();
+        let mut sender = SecureCellSender::new(key, [3u8; 16]);
+        let first = sender.seal(0, b"first").expect("first");
+        let second = sender.seal(0, b"second").expect("second");
+        assert_eq!(first.sequence(), 0);
+        assert_eq!(second.sequence(), 1);
+        assert_ne!(first.seq_iv, second.seq_iv);
+        assert_eq!(sender.next_sequence(), 2);
+    }
+
+    #[test]
+    fn stateful_sender_refuses_sequence_exhaustion() {
+        let mut sender = SecureCellSender::with_next_sequence(test_key(), [4u8; 16], u64::MAX);
+        assert_eq!(
+            sender.seal(0, b"never emitted"),
+            Err(SecureCellError::SequenceExhausted)
+        );
     }
 
     #[test]

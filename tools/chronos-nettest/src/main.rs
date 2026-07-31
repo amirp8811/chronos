@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 //! CHRONOS nettest + experiment harness.
 //!
 //! Modes (via CHRONOS_NETTEST_MODE):

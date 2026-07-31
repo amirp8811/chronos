@@ -6,7 +6,16 @@
 //! authenticated path for turning one plaintext message into 16 encrypted shards
 //! and recovering from any 10 valid shards.
 
-use std::collections::HashSet;
+#[cfg(not(feature = "std"))]
+use alloc::collections::BTreeSet;
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+#[cfg(not(feature = "std"))]
+use alloc::vec;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+#[cfg(feature = "std")]
+use std::collections::BTreeSet;
 
 use crate::gf28::ReedSolomon16_10;
 use crate::secure_cell::{ReceiveCellError, SecureCellReceiver, SecureShardCell};
@@ -189,7 +198,7 @@ impl SecureShardBlockCodec {
     ) -> Result<Vec<u8>, ShardStreamError> {
         let mut receiver = SecureCellReceiver::new(key, 128)
             .map_err(|e| ShardStreamError::Cell(ReceiveCellError::Replay(e)))?;
-        let mut seen_indices = HashSet::new();
+        let mut seen_indices = BTreeSet::new();
         let mut surviving: Vec<Option<Vec<u8>>> = vec![None; SHARD_STREAM_N];
         let mut block_meta: Option<(u64, usize, usize)> = None;
         let mut valid_count = 0usize;
