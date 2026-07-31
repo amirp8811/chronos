@@ -57,7 +57,7 @@ cargo run -p chronos-nettest
 - [docs/HOW_TO_BEAT_THE_TRILEMMA.md](docs/HOW_TO_BEAT_THE_TRILEMMA.md) — **How CHRONOS beats the trilemma** (X1 slot / X2 org pod / X3 open stream).
 - [docs/TRILEMMA_SOLUTION_PLAN.md](docs/TRILEMMA_SOLUTION_PLAN.md) — Success criteria, pillars, experiment plan.
 - [docs/README.md](docs/README.md) — Documentation index.
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Design, wire formats, implementation status.
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Design, wire formats, implementation status.
 - [SECURITY.md](SECURITY.md) — Threat notes, anonymity parameters, validation gates.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Governance and how to help.
 

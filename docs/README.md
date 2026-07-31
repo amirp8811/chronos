@@ -11,6 +11,6 @@ Read **HOW_TO_BEAT** for the constructive design; read **TRILEMMA_SOLUTION_PLAN*
 
 ## Also see (repo root)
 
-- [ARCHITECTURE.md](../ARCHITECTURE.md) — design and status
+- [ARCHITECTURE.md](ARCHITECTURE.md) — design and status
 - [SECURITY.md](../SECURITY.md) — threat notes and validation gates
 - [README.md](../README.md) — quick start

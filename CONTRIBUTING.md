@@ -7,7 +7,7 @@ We welcome contributions from systems engineers, cryptographers, and privacy adv
 ## 1. Getting Started
 1. Familiarize yourself with the **Anonymity Trilemma** and TDM mixnet models.
 2. Ensure you have the latest Rust toolchain installed.
-3. Check the **Implementation Status** in `ARCHITECTURE.md` for open tasks.
+3. Check the **Implementation Status** in `docs/ARCHITECTURE.md` for open tasks.
 
 ### Good First Issues
 - Standardizing logging in `chronos-lite`.
