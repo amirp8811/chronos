@@ -2,43 +2,42 @@
 
 [![CI](https://github.com/amirp8811/chronos/actions/workflows/ci.yml/badge.svg)](https://github.com/amirp8811/chronos/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Rust MSRV](https://img.shields.io/badge/rust-1.97.1%2B-orange.svg)](https://www.rust-lang.org/)
 
-**CHRONOS** is a Rust implementation of a low-latency, multipath anonymous
-communication network. It combines synchronous (TDM) packet mixing, multipath
-erasure coding, and an isolated `no_std` cryptographic core to provide strong
-anonymity with interactive latencies.
+**CHRONOS** is an experimental Rust codebase for studying authenticated relay
+packets, hybrid route setup, erasure-coded cells, and traffic-shaping policies.
+It is developed as a self-contained prototype with explicit security boundaries.
 
-> **Status:** Hardened reference prototype. Core cryptographic and routing
-> logic is implemented and tested. The kernel-bypass dataplane, multi-peer relay
-> service, and directory consensus are currently simulated and have not yet been
-> validated on real hardware. CHRONOS is not yet a production anonymity system.
+> ## Prototype warning
+> **CHRONOS is not a production anonymity system.** It has not received a
+> security audit, a deployment review, or a real-network anonymity evaluation.
+> Do not use it to protect people, sensitive communications, or operational
+> identities.
 
-## Features
+## Implementation status
 
-- **Synchronous TDM mixing** — constant-rate packet flushing to decouple
-  ingress/egress timing from content.
-- **Multipath erasure coding** — (16,10) Reed–Solomon sharding to remove
-  head-of-line blocking.
-- **Post-quantum handshakes** — ML-KEM-768 + X25519 hybrid key exchange.
-- **Isolated `no_std` core** — cryptographic primitives in a `no_std` crate,
-  with `unsafe` confined to the dataplane HAL.
-- **Adaptive mix policy** — selectable anonymity/latency profiles with
-  cover-traffic backfill.
+| Area | Status | What that means today |
+| --- | --- | --- |
+| Authenticated secure cells | Implemented and unit-tested | Fixed-size ChaCha20-Poly1305 cells, replay-window receiver, and stateful sender sequence allocation are exercised in tests. |
+| Route layers | Implemented and unit-tested | Per-hop authenticated wrapping, identifier blinding, and bounded replay handling are implemented for local relay tests. The bounded cache trades replay retention for memory limits. |
+| Hybrid handshake | Implemented and unit-tested | ML-KEM-768 and X25519 route-secret setup is bound to a pinned, stable relay identity. Deployment key distribution remains out of scope. |
+| Proof-of-work admission | Prototype | Address-bound, time-windowed challenges and replay tracking are implemented for the UDP prototype. Operational rate limits and abuse monitoring are not. |
+| Directory API | Local prototype | Signed relay-record ingestion is implemented. The TCP line protocol is not a public directory service or consensus system. |
+| Erasure coding and mix policy | Prototype models | The codecs and scheduling policy are tested in-process. They are not evidence of network-level anonymity. |
+| Send delay | Implemented as a relay option | It delays actual sends only. It does **not** emit cover traffic or provide constant-rate egress. |
+| Dataplane, mobile, browser, and directory consensus | Planned or simulated | These areas contain interfaces, experiments, or presentation scaffolds; they are not operational products. |
+| Optional onion-header simulation | Simulation only | It is feature-gated and deliberately excluded from the default public API. It is not a production cryptographic construction. |
 
-## Quick Start
-
-### Build & test
+## Build and validate
 
 ```bash
-cargo build --workspace
-cargo test --workspace
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --locked
+cargo check -p chronos-core --no-default-features
 python3 scripts/static_audit.py
 ```
 
-### Local simulation
-
-Run a local 2-hop relay-chain simulation:
+For the local experiment harness:
 
 ```bash
 cargo run -p chronos-nettest
@@ -48,23 +47,22 @@ cargo run -p chronos-nettest
 
 | Path | Purpose |
 | --- | --- |
-| `crates/chronos-core` | `no_std` cryptographic engine. |
-| `crates/chronos-sys-dataplane` | Isolated HAL for kernel-bypass networking. |
-| `crates/chronosd` | Relay daemon. |
-| `crates/chronos-dir` | Directory and consensus. |
-| `crates/chronos-lite` | Residential/ARM client runtime. |
-| `crates/chronos-wasm` | Browser runtime with FFI panic barriers. |
-| `docs/` | Architecture and protocol reference. |
-| `scripts/` | Build, audit, and experiment tooling. |
+| `crates/chronos-core` | Protocol primitives. Its default build is `std`; a deliberately smaller, audited subset builds without `std`. |
+| `crates/chronosd` | Experimental UDP relay daemon. |
+| `crates/chronos-dir` | Local authenticated directory-record prototype. |
+| `crates/chronos-sys-dataplane` | Hardware-abstraction boundary; the sole crate permitted to contain `unsafe` code. |
+| `crates/chronos-lite`, `crates/chronos-wasm` | Client-side experiments and bindings. |
+| `apps/` | Clearly labelled interface demonstrations and future client scaffolds. |
+| `docs/` | Architecture, protocol, and status notes. |
+| `scripts/` | Validation and experiment tooling. |
 
 ## Documentation
 
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — design, wire formats, and implementation status.
-- [PROTOCOLS.md](docs/PROTOCOLS.md) — wire-format and protocol identifiers.
-- [SECURITY.md](SECURITY.md) — threat model, anonymity parameters, and validation gates.
-- [CONTRIBUTING.md](CONTRIBUTING.md) — governance and how to help.
-- [RULES.md](RULES.md) — repository conventions and honesty policy.
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — community standards.
+- [Architecture and status](docs/ARCHITECTURE.md)
+- [Implemented protocol notes](docs/PROTOCOLS.md)
+- [Security boundaries and validation](SECURITY.md)
+- [Repository rules](RULES.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## License
 

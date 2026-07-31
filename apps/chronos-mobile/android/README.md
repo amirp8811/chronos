@@ -1,10 +1,5 @@
-# CHRONOS Android client scaffold
+# CHRONOS mobile platform scaffold
 
-Planned native integration points:
-
-- Android Keystore-backed node/session key storage.
-- Kotlin UDP/WebSocket transport adapter for CRP7 packets.
-- Foreground service controls for route sessions.
-- WorkManager-based deferred sync for DPF snapshot fetches.
-
-This directory is currently a scaffold; no Kotlin/Gradle target is implemented yet.
+This directory reserves a location for a future native mobile integration. No
+build target, runtime, transport adapter, or key-storage implementation exists
+today. It is not a supported client.

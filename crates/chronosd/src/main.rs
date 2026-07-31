@@ -1,5 +1,5 @@
-//! `chronosd` — Core Bare-Metal Relay Daemon
-//! CHRONOS-SPEC-v7.0 Section 3
+#![deny(unsafe_code)]
+//! `chronosd` — experimental relay daemon.
 
 mod cache_resctrl;
 mod config;
@@ -13,8 +13,8 @@ mod toeplitz_rss;
 mod udp_relay;
 
 use cache_resctrl::L3CacheLocker;
+use chronos_core::NodeKeyMaterial;
 use chronos_core::framing::UmemFrameDescriptor;
-use chronos_core::{NodeKeyMaterial, PowChallenge};
 use chronos_sys_dataplane::af_xdp_proto::plan_af_xdp;
 use chronos_sys_dataplane::io_uring_proto::plan_io_uring;
 use config::{ChronosdConfig, load_chronosd_config};
@@ -24,6 +24,28 @@ use mixing_engine::BitonicSortingEngine;
 use socket_tiering::SocketTieringManager;
 use std::time::Duration;
 use toeplitz_rss::ToeplitzSaltShuffler;
+
+fn parse_hex_32(value: &str) -> Option<[u8; 32]> {
+    if value.len() != 64 {
+        return None;
+    }
+    let mut bytes = [0u8; 32];
+    for (index, byte) in bytes.iter_mut().enumerate() {
+        let high = value.as_bytes()[index * 2];
+        let low = value.as_bytes()[index * 2 + 1];
+        *byte = (hex_nibble(high)? << 4) | hex_nibble(low)?;
+    }
+    Some(bytes)
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -99,20 +121,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
         relay.enable_handshake(_node_keys.clone())?;
         relay.set_session_enforcement(config.enforce_sessions);
-        if config.tdm_slot_ms > 0 {
-            relay.enable_tdm_pacing(std::time::Duration::from_millis(config.tdm_slot_ms));
+        if config.send_delay_ms > 0 {
+            relay.enable_send_delay(std::time::Duration::from_millis(config.send_delay_ms));
         }
         if config.enable_pow_client_puzzles {
+            let env_name = config
+                .pow_secret_env
+                .as_deref()
+                .ok_or("PoW is enabled but security.pow_secret_env is not configured")?;
+            let secret_value = std::env::var(env_name)
+                .map_err(|_| format!("PoW is enabled but {env_name} is unavailable"))?;
+            let server_secret = parse_hex_32(&secret_value)
+                .ok_or("PoW secret must be exactly 32 bytes of hexadecimal")?;
             let mut relay_id = [0u8; 16];
-            let fp = config.node_id_fp.as_bytes();
-            let n = fp.len().min(16);
-            relay_id[..n].copy_from_slice(&fp[..n]);
-            relay.enable_pow_admission(PowChallenge {
+            let fingerprint = config.node_id_fp.as_bytes();
+            let length = fingerprint.len().min(relay_id.len());
+            relay_id[..length].copy_from_slice(&fingerprint[..length]);
+            relay.enable_pow_admission(udp_relay::PowAdmissionConfig::new(
                 relay_id,
-                unix_window: 0,
-                difficulty_zero_bits: config.pow_default_difficulty_zero_bits,
-                token: [0; 32],
-            });
+                server_secret,
+                config.pow_default_difficulty_zero_bits,
+                config.pow_window_seconds,
+            )?)?;
         }
         let route_secret_count = if std::env::var("CHRONOSD_ROUTE_SECRETS").is_ok() {
             relay.apply_route_secrets_from_env("CHRONOSD_ROUTE_SECRETS")?
@@ -141,7 +171,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Initialize SIMD Bitonic Mixing Engine
     let mixing_engine = BitonicSortingEngine::new(5.0, 64);
 
-    info!("Daemon initialized successfully. Entering active TDM event loop.");
+    info!("Daemon prototype initialized; running local demonstration loop.");
 
     // Simulate 3 iterations of monitoring & sorting
     let mut simulated_umem_pool: Vec<UmemFrameDescriptor> =
@@ -149,7 +179,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for epoch in 1..=3 {
         tokio::time::sleep(Duration::from_millis(100)).await;
         info!(
-            "Epoch #{:02} active | Pacing: 81.92 ns TDM | Wire Budget: 1,280B | Saturation: 100%",
+            "Demonstration epoch #{:02} active | model wire budget: 1,280B",
             epoch
         );
 

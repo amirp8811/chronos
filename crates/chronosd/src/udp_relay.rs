@@ -15,9 +15,10 @@ use crate::queue::{BoundedRelayQueue, QueueError, QueuedRelayPacket};
 
 use chronos_core::{
     HandshakePacket, HandshakePacketType, HandshakePublicKeys, NodeKeyMaterial, PowAdmissionCache,
-    PowChallenge, RELAY_PACKET_MAX_BYTES, RelayDecision, RelayErrorCode, RelayHandlerError,
-    RelayPacket, RelayPacketError, RelayPacketHandler, RouteCommandKind, RouteHopSecret,
-    RouteLayerError, RouteLayerProcessor, ServerHandshakeState, server_accept_handshake,
+    PowAdmissionError, PowChallenge, RELAY_PACKET_MAX_BYTES, RelayDecision, RelayErrorCode,
+    RelayHandlerError, RelayPacket, RelayPacketError, RelayPacketHandler, RouteCommandKind,
+    RouteHopSecret, RouteLayerError, RouteLayerProcessor, ServerHandshakeState,
+    server_accept_handshake,
 };
 use tokio::net::UdpSocket;
 
@@ -32,6 +33,7 @@ pub enum UdpRelayError {
     NoSession { stream_id: u64 },
     QueueFull,
     InvalidRouteSpec(String),
+    InvalidPowConfiguration(&'static str),
 }
 
 impl fmt::Display for UdpRelayError {
@@ -145,6 +147,112 @@ fn hex_nibble(byte: u8) -> Option<u8> {
     }
 }
 
+/// Runtime configuration for stateless, address-bound proof-of-work admission.
+/// The secret is supplied by the daemon configuration loader and is never logged.
+#[derive(Clone)]
+pub struct PowAdmissionConfig {
+    pub relay_id: [u8; 16],
+    pub server_secret: [u8; 32],
+    pub difficulty_zero_bits: u32,
+    pub window_seconds: u64,
+    pub accepted_past_windows: u8,
+}
+
+impl PowAdmissionConfig {
+    pub fn new(
+        relay_id: [u8; 16],
+        server_secret: [u8; 32],
+        difficulty_zero_bits: u32,
+        window_seconds: u64,
+    ) -> Result<Self, UdpRelayError> {
+        if server_secret.iter().all(|byte| *byte == 0) {
+            return Err(UdpRelayError::InvalidPowConfiguration(
+                "PoW requires a non-zero configured server secret",
+            ));
+        }
+        if difficulty_zero_bits > 255 {
+            return Err(UdpRelayError::InvalidPowConfiguration(
+                "PoW difficulty must not exceed SHA-256 output width",
+            ));
+        }
+        if window_seconds == 0 {
+            return Err(UdpRelayError::InvalidPowConfiguration(
+                "PoW window must be non-zero",
+            ));
+        }
+        Ok(Self {
+            relay_id,
+            server_secret,
+            difficulty_zero_bits,
+            window_seconds,
+            accepted_past_windows: 1,
+        })
+    }
+}
+
+struct PowAdmission {
+    config: PowAdmissionConfig,
+    replay_cache: PowAdmissionCache,
+}
+
+impl PowAdmission {
+    fn new(config: PowAdmissionConfig) -> Self {
+        // Keep replay state for the issued window plus one adjacent prior window.
+        let cache_ttl = std::time::Duration::from_secs(
+            config
+                .window_seconds
+                .saturating_mul(u64::from(config.accepted_past_windows) + 2),
+        );
+        Self {
+            config,
+            replay_cache: PowAdmissionCache::new(4096, cache_ttl),
+        }
+    }
+
+    fn challenge_for_source_at(&self, source: SocketAddr, now_unix: u64) -> PowChallenge {
+        PowChallenge::new_stateless(
+            self.config.relay_id,
+            now_unix / self.config.window_seconds,
+            self.config.difficulty_zero_bits,
+            source.to_string().as_bytes(),
+            &self.config.server_secret,
+        )
+    }
+
+    fn verify_solution_at(
+        &mut self,
+        source: SocketAddr,
+        nonce: &[u8],
+        now_unix: u64,
+    ) -> Result<(), PowAdmissionError> {
+        let current_window = now_unix / self.config.window_seconds;
+        for offset in 0..=self.config.accepted_past_windows {
+            let window = current_window.saturating_sub(u64::from(offset));
+            let challenge = PowChallenge::new_stateless(
+                self.config.relay_id,
+                window,
+                self.config.difficulty_zero_bits,
+                source.to_string().as_bytes(),
+                &self.config.server_secret,
+            );
+            match self.replay_cache.verify_and_insert(&challenge, nonce) {
+                Ok(()) => return Ok(()),
+                Err(PowAdmissionError::Replay) => return Err(PowAdmissionError::Replay),
+                Err(PowAdmissionError::InvalidNonce) => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(PowAdmissionError::InvalidNonce)
+    }
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct UdpRelayMetrics {
     pub packets_received: u64,
@@ -167,18 +275,16 @@ pub struct ChronosUdpRelay {
     route_replay_ttl: std::time::Duration,
     node_keys: Option<NodeKeyMaterial>,
     server_hello: Option<HandshakePacket>,
-    pending_handshakes: HashMap<SocketAddr, (HandshakePacket, NodeKeyMaterial)>,
     next_session_stream_id: u64,
     sessions: HashMap<SocketAddr, ServerHandshakeState>,
     session_streams: HashSet<u64>,
     enforce_sessions: bool,
-    pow_challenge: Option<PowChallenge>,
+    pow_admission: Option<PowAdmission>,
     pow_admitted: std::collections::HashSet<SocketAddr>,
-    pow_cache: PowAdmissionCache,
     outbound_queue: BoundedRelayQueue,
     metrics: Arc<Mutex<UdpRelayMetrics>>,
-    tdm_slot_width: std::time::Duration,
-    sent_tdm_slots: u64,
+    send_delay: std::time::Duration,
+    sent_packets: u64,
 }
 
 impl ChronosUdpRelay {
@@ -223,18 +329,16 @@ impl ChronosUdpRelay {
             route_replay_ttl,
             node_keys: None,
             server_hello: None,
-            pending_handshakes: HashMap::new(),
             next_session_stream_id: 10_000,
             sessions: HashMap::new(),
             session_streams: HashSet::new(),
             enforce_sessions: false,
-            pow_challenge: None,
+            pow_admission: None,
             pow_admitted: std::collections::HashSet::new(),
-            pow_cache: PowAdmissionCache::new(4096, std::time::Duration::from_secs(300)),
             outbound_queue: BoundedRelayQueue::new(outbound_queue_max),
             metrics: Arc::new(Mutex::new(UdpRelayMetrics::default())),
-            tdm_slot_width: std::time::Duration::ZERO,
-            sent_tdm_slots: 0,
+            send_delay: std::time::Duration::ZERO,
+            sent_packets: 0,
         })
     }
 
@@ -251,8 +355,12 @@ impl ChronosUdpRelay {
         Ok(())
     }
 
-    pub fn enable_pow_admission(&mut self, challenge: PowChallenge) {
-        self.pow_challenge = Some(challenge);
+    pub fn enable_pow_admission(
+        &mut self,
+        config: PowAdmissionConfig,
+    ) -> Result<(), UdpRelayError> {
+        self.pow_admission = Some(PowAdmission::new(config));
+        Ok(())
     }
 
     pub fn set_session_enforcement(&mut self, enforce: bool) {
@@ -273,13 +381,15 @@ impl ChronosUdpRelay {
         *self.metrics.lock().expect("metrics lock")
     }
 
-    pub fn enable_tdm_pacing(&mut self, slot_width: std::time::Duration) {
-        self.tdm_slot_width = slot_width;
+    /// Adds a best-effort delay before each actual send. This does not emit cover
+    /// traffic or provide constant-rate egress.
+    pub fn enable_send_delay(&mut self, delay: std::time::Duration) {
+        self.send_delay = delay;
     }
 
     #[cfg(test)]
-    pub fn sent_tdm_slots(&self) -> u64 {
-        self.sent_tdm_slots
+    pub fn sent_packets(&self) -> u64 {
+        self.sent_packets
     }
 
     pub fn insert_route_secret(&mut self, stream_id: u64, secret: RouteHopSecret) {
@@ -352,26 +462,16 @@ impl ChronosUdpRelay {
         };
         match packet.packet_type {
             HandshakePacketType::ServerHello if packet.payload.is_empty() => {
-                let response = if let Some(challenge) = &self.pow_challenge {
-                    let source_challenge = PowChallenge::new_stateless(
-                        challenge.relay_id,
-                        challenge.unix_window,
-                        challenge.difficulty_zero_bits,
-                        source.to_string().as_bytes(),
-                        b"chronosd-local-pow-secret",
-                    );
+                let response = if let Some(admission) = &self.pow_admission {
+                    let source_challenge = admission.challenge_for_source_at(source, unix_now());
                     HandshakePacket::pow_challenge(&source_challenge).map_err(|e| {
                         UdpRelayError::Handshake(format!("encode pow challenge: {e:?}"))
                     })?
                 } else {
-                    let eph = NodeKeyMaterial::generate()
-                        .map_err(|e| UdpRelayError::Handshake(format!("ephemeral keys: {e:?}")))?;
-                    let eph_hello = HandshakePublicKeys::from_node_keys(&eph)
-                        .to_server_hello_packet()
-                        .map_err(|e| UdpRelayError::Handshake(format!("ephemeral hello: {e:?}")))?;
-                    self.pending_handshakes
-                        .insert(source, (eph_hello.clone(), eph));
-                    eph_hello
+                    // The ServerHello is signed by the stable node identity
+                    // loaded during daemon startup. Per-connection identities
+                    // would make client identity pinning meaningless.
+                    server_hello.clone()
                 };
                 let bytes = response
                     .encode()
@@ -380,50 +480,31 @@ impl ChronosUdpRelay {
                 RelayPacket::ack(0, 0).map_err(UdpRelayError::Packet)
             }
             HandshakePacketType::PowSolution => {
-                let Some(challenge) = &self.pow_challenge else {
+                let Some(admission) = self.pow_admission.as_mut() else {
                     return Err(UdpRelayError::Handshake("pow not required".to_string()));
                 };
-                let source_challenge = PowChallenge::new_stateless(
-                    challenge.relay_id,
-                    challenge.unix_window,
-                    challenge.difficulty_zero_bits,
-                    source.to_string().as_bytes(),
-                    b"chronosd-local-pow-secret",
-                );
-                self.pow_cache
-                    .verify_and_insert(&source_challenge, &packet.payload)
+                admission
+                    .verify_solution_at(source, &packet.payload, unix_now())
                     .map_err(|e| UdpRelayError::Handshake(format!("pow verify: {e:?}")))?;
                 self.pow_admitted.insert(source);
-                let eph = NodeKeyMaterial::generate()
-                    .map_err(|e| UdpRelayError::Handshake(format!("ephemeral keys: {e:?}")))?;
-                let eph_hello = HandshakePublicKeys::from_node_keys(&eph)
-                    .to_server_hello_packet()
-                    .map_err(|e| UdpRelayError::Handshake(format!("ephemeral hello: {e:?}")))?;
-                self.pending_handshakes
-                    .insert(source, (eph_hello.clone(), eph));
-                let bytes = eph_hello
+                let bytes = server_hello
                     .encode()
                     .map_err(|e| UdpRelayError::Handshake(format!("encode hello: {e:?}")))?;
                 self.socket.send_to(&bytes, source).await?;
                 RelayPacket::ack(0, 0).map_err(UdpRelayError::Packet)
             }
             HandshakePacketType::ClientKeyShare => {
-                if self.pow_challenge.is_some() && !self.pow_admitted.contains(&source) {
+                if self.pow_admission.is_some() && !self.pow_admitted.contains(&source) {
                     return Err(UdpRelayError::Handshake(
                         "pow admission required".to_string(),
                     ));
                 }
-                let (hello_for_client, keys_for_client) =
-                    self.pending_handshakes.remove(&source).unwrap_or_else(|| {
-                        (
-                            server_hello.clone(),
-                            self.node_keys
-                                .clone()
-                                .expect("node keys enabled for handshake"),
-                        )
-                    });
+                let keys_for_client = self
+                    .node_keys
+                    .as_ref()
+                    .ok_or_else(|| UdpRelayError::Handshake("handshake disabled".to_string()))?;
                 let (confirm, state) =
-                    server_accept_handshake(&hello_for_client, &packet, &keys_for_client).map_err(
+                    server_accept_handshake(&server_hello, &packet, keys_for_client).map_err(
                         |e| UdpRelayError::Handshake(format!("accept handshake: {e:?}")),
                     )?;
                 let stream_id = self.next_session_stream_id;
@@ -613,10 +694,10 @@ impl ChronosUdpRelay {
         packet: &RelayPacket,
         destination: SocketAddr,
     ) -> Result<(), UdpRelayError> {
-        if !self.tdm_slot_width.is_zero() {
-            tokio::time::sleep(self.tdm_slot_width).await;
+        if !self.send_delay.is_zero() {
+            tokio::time::sleep(self.send_delay).await;
         }
-        self.sent_tdm_slots = self.sent_tdm_slots.saturating_add(1);
+        self.sent_packets = self.sent_packets.saturating_add(1);
         let bytes = packet.encode().map_err(UdpRelayError::Packet)?;
         self.socket.send_to(&bytes, destination).await?;
         Ok(())
@@ -810,11 +891,51 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
+    #[test]
+    fn pow_admission_uses_time_windows_and_secret_bound_tokens() {
+        let source: SocketAddr = "127.0.0.1:9000".parse().expect("source");
+        let mut first =
+            PowAdmission::new(PowAdmissionConfig::new([1; 16], [0x11; 32], 4, 30).expect("config"));
+        let mut second =
+            PowAdmission::new(PowAdmissionConfig::new([1; 16], [0x22; 32], 4, 30).expect("config"));
+        let at_first_window = first.challenge_for_source_at(source, 31);
+        let at_next_window = first.challenge_for_source_at(source, 61);
+        let other_secret = second.challenge_for_source_at(source, 31);
+        assert_ne!(at_first_window.unix_window, at_next_window.unix_window);
+        assert_ne!(at_first_window.token, at_next_window.token);
+        assert_ne!(at_first_window.token, other_secret.token);
+
+        let nonce = (0u64..100_000)
+            .map(|value| value.to_be_bytes().to_vec())
+            .find(|candidate| {
+                at_first_window.verify(candidate).is_ok() && other_secret.verify(candidate).is_err()
+            })
+            .expect("nonce accepted only for the configured secret");
+        assert_eq!(
+            second.verify_solution_at(source, &nonce, 31),
+            Err(PowAdmissionError::InvalidNonce),
+            "a solution for one configured secret must not verify under another"
+        );
+        first
+            .verify_solution_at(source, &nonce, 61)
+            .expect("one adjacent prior window is accepted");
+        assert_eq!(
+            first.verify_solution_at(source, &nonce, 61),
+            Err(PowAdmissionError::Replay)
+        );
+    }
+
+    #[test]
+    fn pow_refuses_default_or_missing_equivalent_secret_material() {
+        assert!(matches!(
+            PowAdmissionConfig::new([0; 16], [0; 32], 8, 30),
+            Err(UdpRelayError::InvalidPowConfiguration(_))
+        ));
+    }
+
     #[tokio::test]
     async fn security_rejects_replayed_pow_solution_from_same_source() {
-        use chronos_core::{
-            HandshakePacketType, NodeKeyMaterial, PowChallenge, solve_pow_for_tests,
-        };
+        use chronos_core::{HandshakePacketType, NodeKeyMaterial, solve_pow_for_tests};
         let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("receiver");
         let mut routes = StaticRouteTable::new();
         routes.insert(10_000, receiver.local_addr().expect("receiver addr"));
@@ -824,13 +945,11 @@ mod tests {
         relay
             .enable_handshake(NodeKeyMaterial::generate().expect("keys"))
             .expect("enable");
-        let challenge_template = PowChallenge {
-            relay_id: [4; 16],
-            unix_window: 1,
-            difficulty_zero_bits: 8,
-            token: [0; 32],
-        };
-        relay.enable_pow_admission(challenge_template.clone());
+        relay
+            .enable_pow_admission(
+                PowAdmissionConfig::new([4; 16], [0xA4; 32], 8, 30).expect("pow config"),
+            )
+            .expect("enable pow");
         let relay_addr = relay.local_addr().expect("relay addr");
         let client = UdpSocket::bind("127.0.0.1:0").await.expect("client");
 
@@ -874,8 +993,8 @@ mod tests {
     #[tokio::test]
     async fn live_chs7_handshake_requires_pow_when_enabled() {
         use chronos_core::{
-            HandshakePacketType, NodeKeyMaterial, PowChallenge, X25519NodeSecret,
-            client_begin_handshake, client_verify_server_confirm, solve_pow_for_tests,
+            HandshakePacketType, NodeKeyMaterial, X25519NodeSecret,
+            client_begin_handshake_for_identity, client_verify_server_confirm, solve_pow_for_tests,
         };
         let mut routes = StaticRouteTable::new();
         let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("receiver");
@@ -886,27 +1005,13 @@ mod tests {
         relay
             .enable_handshake(NodeKeyMaterial::generate().expect("keys"))
             .expect("enable");
-        let challenge_template = PowChallenge {
-            relay_id: [3; 16],
-            unix_window: 1,
-            difficulty_zero_bits: 8,
-            token: [0; 32],
-        };
-        relay.enable_pow_admission(challenge_template.clone());
+        relay
+            .enable_pow_admission(
+                PowAdmissionConfig::new([3; 16], [0xA3; 32], 8, 30).expect("pow config"),
+            )
+            .expect("enable pow");
         let relay_addr = relay.local_addr().expect("addr");
         let client = UdpSocket::bind("127.0.0.1:0").await.expect("client");
-        let expected_challenge = PowChallenge::new_stateless(
-            challenge_template.relay_id,
-            challenge_template.unix_window,
-            challenge_template.difficulty_zero_bits,
-            client
-                .local_addr()
-                .expect("client addr")
-                .to_string()
-                .as_bytes(),
-            b"chronosd-local-pow-secret",
-        );
-
         let hello_request =
             HandshakePacket::new(HandshakePacketType::ServerHello, Vec::new()).expect("req");
         client
@@ -917,10 +1022,9 @@ mod tests {
         let mut buf = [0u8; 4096];
         let (len, _) = client.recv_from(&mut buf).await.expect("recv challenge");
         let challenge_packet = HandshakePacket::decode(&buf[..len]).expect("decode challenge");
-        assert_eq!(
-            challenge_packet.decode_pow_challenge().expect("pow"),
-            expected_challenge
-        );
+        let expected_challenge = challenge_packet.decode_pow_challenge().expect("pow");
+        assert_eq!(expected_challenge.relay_id, [3; 16]);
+        assert_eq!(expected_challenge.difficulty_zero_bits, 8);
 
         let nonce = solve_pow_for_tests(&expected_challenge, 100_000).expect("solve");
         let solution = HandshakePacket::pow_solution(nonce).expect("solution");
@@ -932,9 +1036,14 @@ mod tests {
         let (hlen, _) = client.recv_from(&mut buf).await.expect("hello");
         let server_hello = HandshakePacket::decode(&buf[..hlen]).expect("decode hello");
 
-        let (client_share, client_state) =
-            client_begin_handshake(&server_hello, &X25519NodeSecret::from_bytes([0xBC; 32]))
-                .expect("begin");
+        let (client_share, client_state) = client_begin_handshake_for_identity(
+            &server_hello,
+            &HandshakePublicKeys::from_server_hello_packet(&server_hello)
+                .expect("identity")
+                .identity_public,
+            &X25519NodeSecret::from_bytes([0xBC; 32]),
+        )
+        .expect("begin");
         client
             .send_to(&client_share.encode().unwrap(), relay_addr)
             .await
@@ -948,8 +1057,8 @@ mod tests {
     #[tokio::test]
     async fn live_chs7_handshake_installs_route_secret_for_delivery() {
         use chronos_core::{
-            HandshakePacketType, HandshakePublicKeys, X25519NodeSecret, client_begin_handshake,
-            client_verify_server_confirm,
+            HandshakePacketType, HandshakePublicKeys, X25519NodeSecret,
+            client_begin_handshake_for_identity, client_verify_server_confirm,
         };
 
         let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("receiver");
@@ -960,6 +1069,7 @@ mod tests {
             .await
             .expect("relay");
         let server_keys = NodeKeyMaterial::generate().expect("server keys");
+        let expected_identity = server_keys.identity_signing.verifying_key().to_bytes();
         relay
             .enable_handshake(server_keys)
             .expect("enable handshake");
@@ -979,10 +1089,27 @@ mod tests {
         let parsed =
             HandshakePublicKeys::from_server_hello_packet(&server_hello).expect("parse hello keys");
         assert_ne!(parsed.x25519_public.0, [0u8; 32]);
+        assert_eq!(parsed.identity_public, expected_identity);
+
+        // A second hello request must present the same durable identity rather
+        // than a per-connection self-signed identity.
+        client
+            .send_to(&hello_request.encode().expect("encode request"), relay_addr)
+            .await
+            .expect("send second request");
+        relay.relay_one().await.expect("serve second hello");
+        let (second_len, _) = client.recv_from(&mut hbuf).await.expect("second hello");
+        let second_hello =
+            HandshakePacket::decode(&hbuf[..second_len]).expect("decode second hello");
+        let second = HandshakePublicKeys::from_server_hello_packet(&second_hello)
+            .expect("parse second hello");
+        assert_eq!(second.identity_public, expected_identity);
+        assert_eq!(second.x25519_public, parsed.x25519_public);
 
         let client_x = X25519NodeSecret::from_bytes([0xAB; 32]);
         let (client_share, client_state) =
-            client_begin_handshake(&server_hello, &client_x).expect("client share");
+            client_begin_handshake_for_identity(&server_hello, &expected_identity, &client_x)
+                .expect("client share");
         client
             .send_to(&client_share.encode().expect("encode share"), relay_addr)
             .await
@@ -1146,7 +1273,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn udp_relay_tdm_pacing_counts_send_slots() {
+    async fn udp_relay_send_delay_counts_sends() {
         let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("receiver");
         let receiver_addr = receiver.local_addr().expect("receiver addr");
         let mut routes = StaticRouteTable::new();
@@ -1154,12 +1281,12 @@ mod tests {
         let mut relay = ChronosUdpRelay::bind("127.0.0.1:0", routes)
             .await
             .expect("relay");
-        relay.enable_tdm_pacing(std::time::Duration::from_millis(1));
+        relay.enable_send_delay(std::time::Duration::from_millis(1));
         let relay_addr = relay.local_addr().expect("relay addr");
         let sender = UdpSocket::bind("127.0.0.1:0").await.expect("sender");
         let codec = SecureShardBlockCodec::new();
         let cells = codec
-            .encode_message(&key(), [0x59; 16], 7, 70, b"tdm shard")
+            .encode_message(&key(), [0x59; 16], 7, 70, b"send delay shard")
             .expect("encode");
         let packet = RelayPacket::shard(77, 7, &cells[0]).expect("packet");
         sender
@@ -1168,7 +1295,7 @@ mod tests {
             .expect("send");
         let _ = relay.relay_one().await.expect("relay one");
         // one forwarded packet + one ACK were paced through the live send path
-        assert_eq!(relay.sent_tdm_slots(), 2);
+        assert_eq!(relay.sent_packets(), 2);
     }
 
     #[tokio::test]

@@ -32,7 +32,7 @@ pub fn chronos_wasm_version() -> String {
 }
 
 #[wasm_bindgen]
-pub fn chronos_plan_tdm_slots(slots: u32, data_cells: u32, cover_when_idle: bool) -> u32 {
+pub fn chronos_plan_simulated_slots(slots: u32, data_cells: u32, cover_when_idle: bool) -> u32 {
     use chronos_core::tdm::TdmScheduler;
     use std::time::Duration;
     let s = TdmScheduler::new(Duration::from_millis(1), cover_when_idle);
@@ -41,10 +41,11 @@ pub fn chronos_plan_tdm_slots(slots: u32, data_cells: u32, cover_when_idle: bool
 
 #[wasm_bindgen]
 pub fn chronos_secure_cell_self_test(message: &str) -> bool {
-    use chronos_core::secure_cell::SecureShardCell;
+    use chronos_core::secure_cell::SecureCellSender;
     let key = [7u8; 32];
     let tag = [1u8; 16];
-    match SecureShardCell::encrypt(&key, tag, 1, 0, message.as_bytes()) {
+    let mut sender = SecureCellSender::new(key, tag);
+    match sender.seal(0, message.as_bytes()) {
         Ok(cell) => cell
             .decrypt(&key)
             .map(|p| p == message.as_bytes())

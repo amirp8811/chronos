@@ -31,8 +31,20 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Test
+      - name: Workspace tests
         run: cargo test --workspace
 
-      - name: Static audit (unsafe / dependency policy)
+      - name: Locked dependency tests
+        run: cargo test --workspace --locked
+
+      - name: no_std core subset
+        run: cargo check -p chronos-core --no-default-features
+
+      - name: Simulation feature tests
+        run: cargo test -p chronos-core --features simulation
+
+      - name: Duplicate dependency report
+        run: cargo tree -d
+
+      - name: Static audit
         run: python3 scripts/static_audit.py
