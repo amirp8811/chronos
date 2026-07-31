@@ -5,7 +5,7 @@ This document provides a deep dive into the technical design and the path to pro
 ---
 
 ## 1. Architectural Vision
-CHRONOS solves the Anonymity Trilemma by moving away from asynchronous TCP circuits. It utilizes:
+CHRONOS solves the Anonymity Trilemma with a synchronous, multipath design. It utilizes:
 - **Zero-Copy Data-Plane**: Sub-millisecond packet processing via `AF_XDP` and `io_uring`.
 - **Multipath Erasure Coding**: (16,10) Reed-Solomon sharding to eliminate Head-of-Line (HoL) blocking.
 - **Synchronous TDM Mixing**: Constant-rate packet flushing to decouple ingress/egress timing.

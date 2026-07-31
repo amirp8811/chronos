@@ -11,8 +11,8 @@ anonymity with interactive latencies.
 
 > **Status:** Hardened reference prototype. Core cryptographic and routing
 > logic is implemented and tested. The kernel-bypass dataplane, multi-peer relay
-> service, and directory consensus are currently simulated and have **not** been
-> staged on real hardware. Do not rely on CHRONOS for real-world anonymity yet.
+> service, and directory consensus are currently simulated and have not yet been
+> validated on real hardware. CHRONOS is not yet a production anonymity system.
 
 ## Features
 
