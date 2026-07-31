@@ -3,7 +3,6 @@
 
 use crate::nic_control::build_ethtool_toeplitz_args;
 use log::{info, warn};
-use std::mem::MaybeUninit;
 use std::time::{Duration, Instant};
 
 pub struct ToeplitzSaltShuffler {
@@ -40,15 +39,11 @@ impl ToeplitzSaltShuffler {
             // Generate a fresh 40-byte Toeplitz hash key from the OS CSPRNG.
             // A production NIC-control implementation must source entropy at the
             // hardware boundary rather than from a hard-coded constant.
-            let mut new_salt = MaybeUninit::<[u8; 40]>::uninit();
-            let salt_bytes = unsafe {
-                std::slice::from_raw_parts_mut(new_salt.as_mut_ptr() as *mut u8, 40)
-            };
-            if let Err(e) = getrandom::getrandom(salt_bytes) {
+            let mut new_salt = [0u8; 40];
+            if let Err(e) = getrandom::getrandom(&mut new_salt) {
                 warn!("Failed to source Toeplitz salt from CSPRNG: {:?}", e);
                 return false;
             }
-            let new_salt = unsafe { new_salt.assume_init() };
 
             let _ethtool_args = build_ethtool_toeplitz_args(&self.interface, &new_salt)
                 .map_err(|e| warn!("Invalid Toeplitz salt generated: {:?}", e))
