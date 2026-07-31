@@ -168,6 +168,7 @@ name = "chronosd"
 version = "7.0.0"
 dependencies = [
  "chronos-core",
+ "chronos-sys-dataplane",
  "log",
  "tokio",
 ]
