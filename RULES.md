@@ -16,8 +16,8 @@ self-contained, internally consistent, and honest about its maturity.
   "10/10 feasibility". Every claim traces to a test vector, benchmark, or a
   clearly-labelled *design target*.
 - **State maturity honestly.** Top-level docs state the real status
-  (prototype / reference / production) using the same wording as
-  `docs/IMPLEMENTATION_STATUS.md`.
+  (prototype / reference / production), matching the project status declared in
+  `README.md`.
 - **No dangling references.** Never link or name a repo/package that does not
   exist yet. Fill the link or remove it.
 
@@ -50,8 +50,8 @@ self-contained, internally consistent, and honest about its maturity.
 ## 5. Process
 - Every change goes through a PR; CI (fmt + clippy + test + static audit) must
   be green.
-- Tracking lives in **GitHub Issues**, not in `FULL_TODO.md`. The TODO file is
-  a release checklist, not a backlog.
+- Tracking lives in **GitHub Issues**, not a checked-in TODO file. The release
+  checklist is tracked as GitHub Issues and milestones, not a backlog doc.
 - Commits follow `area: short summary` (e.g. `chronos-relay: fix replay window
   under clock skew`).
 - Build artifacts (tarballs, `.VSCodeCounter/`) are never committed; release
