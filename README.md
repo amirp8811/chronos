@@ -1,5 +1,10 @@
 # CHRONOS: Low-Latency, Multipath Anonymous Communication Fabric
 
+[![CI](https://github.com/amirp8811/chronos/actions/workflows/ci.yml/badge.svg)](https://github.com/amirp8811/chronos/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Rust MSRV](https://img.shields.io/badge/rust-1.97.1%2B-orange.svg)](https://www.rust-lang.org/)
+[![Wiki](https://img.shields.io/badge/docs-wiki-8A2BE2.svg)](https://github.com/amirp8811/chronos/wiki)
+
 CHRONOS is a pure-software anonymous communication fabric aimed at the **anonymity–latency–bandwidth frontier** (strong anonymity, low latency, low *incremental* bandwidth). It uses synchronous TDM pacing, multipath erasure coding, and an explicit **escape architecture** (prepaid isochronous slots + precomputed shuffle + PIR) so strong interactive modes are engineerable without denying classical impossibility results for free-silence mixnets.
 
 See **[docs/HOW_TO_BEAT_THE_TRILEMMA.md](docs/HOW_TO_BEAT_THE_TRILEMMA.md)** for the constructive design and **[docs/TRILEMMA_SOLUTION_PLAN.md](docs/TRILEMMA_SOLUTION_PLAN.md)** for measurement gates (S1–S10).

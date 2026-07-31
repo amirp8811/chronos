@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "🔒 Report a security vulnerability"
+    url: https://github.com/amirp8811/chronos/security/advisories/new
+    about: Please report security issues privately via a GitHub Security Advisory.
+  - name: "📖 Documentation & Design Notes"
+    url: https://github.com/amirp8811/chronos/wiki
+    about: Read the architecture, build, and design docs on the wiki.
