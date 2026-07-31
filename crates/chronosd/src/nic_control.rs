@@ -32,7 +32,8 @@ mod tests {
     use super::*;
     #[test]
     fn builds_ethtool_hkey_args() {
-        let args = build_ethtool_toeplitz_args("eth0", &[0xAB; 40]).unwrap();
+        let salt: Vec<u8> = (0..40u8).collect();
+        let args = build_ethtool_toeplitz_args("eth0", &salt).unwrap();
         assert_eq!(args[0], "-X");
         assert_eq!(args[1], "eth0");
         assert_eq!(args[2], "hkey");

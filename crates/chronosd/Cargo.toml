@@ -10,3 +10,4 @@ chronos-core = { path = "../chronos-core" }
 chronos-sys-dataplane = { path = "../chronos-sys-dataplane" }
 tokio = { version = "1.37", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 log = "0.4"
+getrandom = "0.2"
