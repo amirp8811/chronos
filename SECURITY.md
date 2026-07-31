@@ -77,10 +77,3 @@ Reproducible sweeps:
 bash scripts/run_mix_experiments.sh
 ```
 
----
-
-## 7. Trilemma strategy documents
-
-- Escape architecture (all-three product design): [`docs/HOW_TO_BEAT_THE_TRILEMMA.md`](docs/HOW_TO_BEAT_THE_TRILEMMA.md)
-- Measurement plan and S1–S10 gates: [`docs/TRILEMMA_SOLUTION_PLAN.md`](docs/TRILEMMA_SOLUTION_PLAN.md)
-

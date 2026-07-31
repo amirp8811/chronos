@@ -1,79 +1,71 @@
-# CHRONOS: Low-Latency, Multipath Anonymous Communication Fabric
+# CHRONOS
 
 [![CI](https://github.com/amirp8811/chronos/actions/workflows/ci.yml/badge.svg)](https://github.com/amirp8811/chronos/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust MSRV](https://img.shields.io/badge/rust-1.97.1%2B-orange.svg)](https://www.rust-lang.org/)
-[![Wiki](https://img.shields.io/badge/docs-wiki-8A2BE2.svg)](https://github.com/amirp8811/chronos/wiki)
 
-CHRONOS is a pure-software anonymous communication fabric aimed at the **anonymity–latency–bandwidth frontier** (strong anonymity, low latency, low *incremental* bandwidth). It uses synchronous TDM pacing, multipath erasure coding, and an explicit **escape architecture** (prepaid isochronous slots + precomputed shuffle + PIR) so strong interactive modes are engineerable without denying classical impossibility results for free-silence mixnets.
+**CHRONOS** is a Rust implementation of a low-latency, multipath anonymous
+communication network. It combines synchronous (TDM) packet mixing, multipath
+erasure coding, and an isolated `no_std` cryptographic core to provide strong
+anonymity with interactive latencies.
 
-See **[docs/HOW_TO_BEAT_THE_TRILEMMA.md](docs/HOW_TO_BEAT_THE_TRILEMMA.md)** for the constructive design and **[docs/TRILEMMA_SOLUTION_PLAN.md](docs/TRILEMMA_SOLUTION_PLAN.md)** for measurement gates (S1–S10).
+> **Status:** Hardened reference prototype. Core cryptographic and routing
+> logic is implemented and tested. The kernel-bypass dataplane, multi-peer relay
+> service, and directory consensus are currently simulated and have **not** been
+> staged on real hardware. Do not rely on CHRONOS for real-world anonymity yet.
 
----
+## Features
 
-## 🛠 Project Status: Hardened Reference Prototype
+- **Synchronous TDM mixing** — constant-rate packet flushing to decouple
+  ingress/egress timing from content.
+- **Multipath erasure coding** — (16,10) Reed–Solomon sharding to remove
+  head-of-line blocking.
+- **Post-quantum handshakes** — ML-KEM-768 + X25519 hybrid key exchange.
+- **Isolated `no_std` core** — cryptographic primitives in a `no_std` crate,
+  with `unsafe` confined to the dataplane HAL.
+- **Adaptive mix policy** — selectable anonymity/latency profiles with
+  cover-traffic backfill.
 
-This repository is currently a **hardened reference prototype**. While core cryptographic and routing logic is implemented and validated, production deployment at macroscopic scale requires physical hardware staging and site-specific NIC drivers.
+## Quick Start
 
-**Current Capabilities**:
-- **Post-Quantum Resilience**: ML-KEM-768 + X25519 hybrid handshakes.
-- **High-Throughput Dataplane**: `io_uring` and `AF_XDP` abstractions for 10Gbps+ line-rate targets.
-- **Synchronous Mixing**: TDM-based packet flushing to defeat Global Passive Adversaries (GPA).
-- **Hardened Isolation**: Strictly decoupled `no_std` cryptographic core and isolated hardware HAL.
+### Build & test
 
-**Maturity:** Cryptographic primitives, protocol wire formats, fuzzing, and the local
-`chronos-nettest` simulation are implemented and tested. The kernel-bypass dataplane
-(`AF_XDP` / `io_uring`), the multi-peer relay service, and directory consensus are
-currently *simulated / prototype* — not yet staged on real hardware. **Do not rely on
-CHRONOS for real-world anonymity yet.** Open work is tracked in GitHub Issues and
-`docs/FULL_TODO.md`; see `RULES.md` for how we keep the project honest and consistent.
-
----
-
-## 🚀 Quick Start
-
-### Build & Test
 ```bash
-# Build the workspace
 cargo build --workspace
-
-# Run security-hardened validation suite
 cargo test --workspace
-
-# Run static audit (Enforces #![deny(unsafe_code)] outside HAL)
 python3 scripts/static_audit.py
 ```
 
-### Local Simulation
-Run a local 2-hop relay chain simulation:
+### Local simulation
+
+Run a local 2-hop relay-chain simulation:
+
 ```bash
 cargo run -p chronos-nettest
 ```
 
----
+## Repository structure
 
-## 🏗 Repository Structure
+| Path | Purpose |
+| --- | --- |
+| `crates/chronos-core` | `no_std` cryptographic engine. |
+| `crates/chronos-sys-dataplane` | Isolated HAL for kernel-bypass networking. |
+| `crates/chronosd` | Relay daemon. |
+| `crates/chronos-dir` | Directory and consensus. |
+| `crates/chronos-lite` | Residential/ARM client runtime. |
+| `crates/chronos-wasm` | Browser runtime with FFI panic barriers. |
+| `docs/` | Architecture and protocol reference. |
+| `scripts/` | Build, audit, and experiment tooling. |
 
-- `crates/chronos-core`: The `no_std` cryptographic engine.
-- `crates/chronos-sys-dataplane`: The isolated HAL for kernel-bypass networking.
-- `crates/chronosd`: High-performance relay daemon.
-- `crates/chronos-dir`: Decentralized directory and consensus.
-- `crates/chronos-lite`: Residential/ARM client runtime.
-- `crates/chronos-wasm`: Browser runtime with FFI panic barriers.
-- `docs/`: Trilemma strategy and escape architecture.
+## Documentation
 
----
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — design, wire formats, and implementation status.
+- [PROTOCOLS.md](docs/PROTOCOLS.md) — wire-format and protocol identifiers.
+- [SECURITY.md](SECURITY.md) — threat model, anonymity parameters, and validation gates.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — governance and how to help.
+- [RULES.md](RULES.md) — repository conventions and honesty policy.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — community standards.
 
-## 📚 Documentation
+## License
 
-- [docs/HOW_TO_BEAT_THE_TRILEMMA.md](docs/HOW_TO_BEAT_THE_TRILEMMA.md) — **How CHRONOS beats the trilemma** (X1 slot / X2 org pod / X3 open stream).
-- [docs/TRILEMMA_SOLUTION_PLAN.md](docs/TRILEMMA_SOLUTION_PLAN.md) — Success criteria, pillars, experiment plan.
-- [docs/README.md](docs/README.md) — Documentation index.
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Design, wire formats, implementation status.
-- [SECURITY.md](SECURITY.md) — Threat notes, anonymity parameters, validation gates.
-- [CONTRIBUTING.md](CONTRIBUTING.md) — Governance and how to help.
-
----
-
-## ⚖️ License
-CHRONOS is licensed under the **Apache License 2.0**.
+CHRONOS is licensed under the [Apache License 2.0](LICENSE).
