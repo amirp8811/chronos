@@ -17,7 +17,7 @@ We welcome contributions from systems engineers, cryptographers, and privacy adv
 ---
 
 ## 2. Governance Model
-CHRONOS currently operates under a **Benevolent Dictator for Life (BDFL)** model, led by Amir P (@amirp8811). Major architectural decisions are managed via GitHub RFCs.
+CHRONOS is governed with centralized architectural direction led by Amir P (@amirp8811). Major architectural decisions are made through GitHub RFCs.
 
 ---
 
