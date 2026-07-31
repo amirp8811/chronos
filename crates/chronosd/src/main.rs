@@ -1,11 +1,9 @@
 //! `chronosd` — Core Bare-Metal Relay Daemon
 //! CHRONOS-SPEC-v7.0 Section 3
 
-mod af_xdp_proto;
 mod cache_resctrl;
 mod config;
 mod dataplane_probe;
-mod io_uring_proto;
 mod metrics;
 mod mixing_engine;
 mod nic_control;
@@ -14,13 +12,13 @@ mod socket_tiering;
 mod toeplitz_rss;
 mod udp_relay;
 
-use af_xdp_proto::plan_af_xdp;
 use cache_resctrl::L3CacheLocker;
 use chronos_core::framing::UmemFrameDescriptor;
 use chronos_core::{NodeKeyMaterial, PowChallenge};
+use chronos_sys_dataplane::af_xdp_proto::plan_af_xdp;
 use config::{ChronosdConfig, load_chronosd_config};
 use dataplane_probe::choose_data_plane;
-use io_uring_proto::plan_io_uring;
+use chronos_sys_dataplane::io_uring_proto::plan_io_uring;
 use log::{info, warn};
 use mixing_engine::BitonicSortingEngine;
 use socket_tiering::SocketTieringManager;
@@ -30,7 +28,7 @@ use toeplitz_rss::ToeplitzSaltShuffler;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("================================================================================");
-    println!("         CHRONOS v7.0: CORE RELAY DAEMON (`chronosd`) - LEVEL 14         ");
+    println!("         CHRONOS v7.0: CORE RELAY DAEMON (`chronosd`)         ");
     println!("================================================================================");
 
     info!("Initializing CHRONOS core relay daemon on bare-metal / cloud infrastructure...");
