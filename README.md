@@ -16,6 +16,13 @@ This repository is currently a **hardened reference prototype**. While core cryp
 - **Synchronous Mixing**: TDM-based packet flushing to defeat Global Passive Adversaries (GPA).
 - **Hardened Isolation**: Strictly decoupled `no_std` cryptographic core and isolated hardware HAL.
 
+**Maturity:** Cryptographic primitives, protocol wire formats, fuzzing, and the local
+`chronos-nettest` simulation are implemented and tested. The kernel-bypass dataplane
+(`AF_XDP` / `io_uring`), the multi-peer relay service, and directory consensus are
+currently *simulated / prototype* — not yet staged on real hardware. **Do not rely on
+CHRONOS for real-world anonymity yet.** Open work is tracked in GitHub Issues and
+`docs/FULL_TODO.md`; see `RULES.md` for how we keep the project honest and consistent.
+
 ---
 
 ## 🚀 Quick Start
