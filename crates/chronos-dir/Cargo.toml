@@ -9,4 +9,4 @@ description = "Decentralized HotStuff BFT directory consensus mesh for CHRONOS v
 tokio = { version = "1.37", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 log = "0.4"
 sha2 = "0.10"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "3", features = ["rand_core"] }
