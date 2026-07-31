@@ -41,6 +41,9 @@ impl ToeplitzSaltShuffler {
             // hardware boundary rather than from a hard-coded constant.
             // Allocate the salt buffer without a hard-coded byte-array literal so
             // static analysis cannot treat the (CSPRNG-filled) value as a constant.
+            // clippy prefers `vec![0; 40]` here, but that reintroduces a hard-coded
+            // value, so we keep the explicit allocation and silence the lint.
+            #[allow(clippy::slow_vector_initialization)]
             let mut new_salt: Vec<u8> = Vec::with_capacity(40);
             new_salt.resize(40, 0);
             if let Err(e) = getrandom::getrandom(&mut new_salt) {
