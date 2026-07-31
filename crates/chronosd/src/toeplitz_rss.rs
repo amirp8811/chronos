@@ -3,7 +3,8 @@
 
 use crate::nic_control::build_ethtool_toeplitz_args;
 use log::{info, warn};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::mem::MaybeUninit;
+use std::time::{Duration, Instant};
 
 pub struct ToeplitzSaltShuffler {
     pub interface: String,
@@ -36,23 +37,18 @@ impl ToeplitzSaltShuffler {
             warn!("Attacker manipulated 4-tuple IP/port headers to starve target CPU core.");
             info!("Executing Dynamic Hardware Toeplitz Salt Shuffle via ethtool Netlink...");
 
-            // Generate a simulation-only 40-byte Toeplitz hash key without pulling in an
-            // external RNG crate. A production NIC-control implementation should use
-            // OS CSPRNG bytes (for example `getrandom`) at the hardware boundary.
-            let mut new_salt = [0u8; 40];
-            let nanos = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_nanos() as u64)
-                .unwrap_or(0);
-            let mut state = nanos ^ ((std::process::id() as u64) << 32) ^ 0xA5A5_5A5A_D3C3_B4B4;
-            for byte in new_salt.iter_mut() {
-                // xorshift64*; adequate for this relay-control simulation log path,
-                // not a cryptographic RNG.
-                state ^= state >> 12;
-                state ^= state << 25;
-                state ^= state >> 27;
-                *byte = state.wrapping_mul(0x2545_F491_4F6C_DD1D) as u8;
+            // Generate a fresh 40-byte Toeplitz hash key from the OS CSPRNG.
+            // A production NIC-control implementation must source entropy at the
+            // hardware boundary rather than from a hard-coded constant.
+            let mut new_salt = MaybeUninit::<[u8; 40]>::uninit();
+            let salt_bytes = unsafe {
+                std::slice::from_raw_parts_mut(new_salt.as_mut_ptr() as *mut u8, 40)
+            };
+            if let Err(e) = getrandom::getrandom(salt_bytes) {
+                warn!("Failed to source Toeplitz salt from CSPRNG: {:?}", e);
+                return false;
             }
+            let new_salt = unsafe { new_salt.assume_init() };
 
             let _ethtool_args = build_ethtool_toeplitz_args(&self.interface, &new_salt)
                 .map_err(|e| warn!("Invalid Toeplitz salt generated: {:?}", e))

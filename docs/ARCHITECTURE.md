@@ -84,24 +84,5 @@ prototype for progressive recovery comparisons against fixed Reed-Solomon (16,10
 entropy, latency CDFs, and FEC overhead CSVs for reproducible sweeps
 (`scripts/run_mix_experiments.sh`).
 
----
 
-## 5. Trilemma strategy (canonical plan)
-
-The engineering plan for addressing the anonymity–latency–bandwidth frontier
-honestly (definitions of success, pillars, phases, kill criteria) lives in:
-
-**[docs/TRILEMMA_SOLUTION_PLAN.md](docs/TRILEMMA_SOLUTION_PLAN.md)**
-
-Do not claim to “solve the trilemma” without meeting the S1–S10 criteria in that document.
-
----
-
-## 6. Beating the trilemma (escape architecture)
-
-The constructive design that delivers strong anonymity + interactive latency +
-low *incremental* bandwidth (prepaid isochronous slots + cMix precompute +
-anytrust shuffle + PIR) is:
-
-**[docs/HOW_TO_BEAT_THE_TRILEMMA.md](docs/HOW_TO_BEAT_THE_TRILEMMA.md)**
 
