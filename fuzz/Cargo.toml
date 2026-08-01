@@ -10,6 +10,11 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 chronos-core = { path = "../crates/chronos-core" }
+chronos-dir = { path = "../crates/chronos-dir" }
+chronosd = { path = "../crates/chronosd" }
+chronos-lite = { path = "../crates/chronos-lite" }
+chronos-sys-dataplane = { path = "../crates/chronos-sys-dataplane" }
+chronos-wasm = { path = "../crates/chronos-wasm" }
 
 [[bin]]
 name = "relay_packet"
@@ -56,6 +61,20 @@ bench = false
 [[bin]]
 name = "directory_api"
 path = "fuzz_targets/directory_api.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dataplane_lifecycle"
+path = "fuzz_targets/dataplane_lifecycle.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "stego_ws_frame"
+path = "fuzz_targets/stego_ws_frame.rs"
 test = false
 doc = false
 bench = false

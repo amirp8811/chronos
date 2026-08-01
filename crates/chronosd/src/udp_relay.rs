@@ -738,7 +738,13 @@ mod tests {
 
         let codec = SecureShardBlockCodec::new();
         let cells = codec
-            .encode_message(&key(), [0x19; 16], 1, 10, b"chronosd relay shard")
+            .encode_message_with_external_ids_and_sequence(
+                &key(),
+                [0x19; 16],
+                1,
+                10,
+                b"chronosd relay shard",
+            )
             .expect("encode");
         let packet = RelayPacket::shard(77, 1, &cells[0]).expect("packet");
         let bytes = packet.encode().expect("encode");
@@ -770,7 +776,13 @@ mod tests {
 
         let codec = SecureShardBlockCodec::new();
         let cells = codec
-            .encode_message(&key(), [0x19; 16], 3, 30, b"no route shard")
+            .encode_message_with_external_ids_and_sequence(
+                &key(),
+                [0x19; 16],
+                3,
+                30,
+                b"no route shard",
+            )
             .expect("encode");
         let packet = RelayPacket::shard(999, 3, &cells[0]).expect("packet");
         let bytes = packet.encode().expect("encode");
@@ -815,7 +827,13 @@ mod tests {
         let sender = UdpSocket::bind("127.0.0.1:0").await.expect("sender");
         let codec = SecureShardBlockCodec::new();
         let cells = codec
-            .encode_message(&key(), [0x29; 16], 4, 40, b"two hop shard relay")
+            .encode_message_with_external_ids_and_sequence(
+                &key(),
+                [0x29; 16],
+                4,
+                40,
+                b"two hop shard relay",
+            )
             .expect("encode");
         let packet = RelayPacket::shard(500, 4, &cells[0]).expect("packet");
         let bytes = packet.encode().expect("encode");
@@ -1002,9 +1020,9 @@ mod tests {
         let mut relay = ChronosUdpRelay::bind("127.0.0.1:0", routes)
             .await
             .expect("relay");
-        relay
-            .enable_handshake(NodeKeyMaterial::generate().expect("keys"))
-            .expect("enable");
+        let server_keys = NodeKeyMaterial::generate().expect("keys");
+        let expected_identity = server_keys.identity_signing.verifying_key().to_bytes();
+        relay.enable_handshake(server_keys).expect("enable");
         relay
             .enable_pow_admission(
                 PowAdmissionConfig::new([3; 16], [0xA3; 32], 8, 30).expect("pow config"),
@@ -1038,9 +1056,7 @@ mod tests {
 
         let (client_share, client_state) = client_begin_handshake_for_identity(
             &server_hello,
-            &HandshakePublicKeys::from_server_hello_packet(&server_hello)
-                .expect("identity")
-                .identity_public,
+            &expected_identity,
             &X25519NodeSecret::from_bytes([0xBC; 32]),
         )
         .expect("begin");
@@ -1086,8 +1102,11 @@ mod tests {
         let mut hbuf = [0u8; 4096];
         let (hlen, _) = client.recv_from(&mut hbuf).await.expect("hello");
         let server_hello = HandshakePacket::decode(&hbuf[..hlen]).expect("decode hello");
-        let parsed =
-            HandshakePublicKeys::from_server_hello_packet(&server_hello).expect("parse hello keys");
+        let parsed = HandshakePublicKeys::parse_server_hello_for_expected_identity(
+            &server_hello,
+            &expected_identity,
+        )
+        .expect("parse expected hello keys");
         assert_ne!(parsed.x25519_public.0, [0u8; 32]);
         assert_eq!(parsed.identity_public, expected_identity);
 
@@ -1101,8 +1120,11 @@ mod tests {
         let (second_len, _) = client.recv_from(&mut hbuf).await.expect("second hello");
         let second_hello =
             HandshakePacket::decode(&hbuf[..second_len]).expect("decode second hello");
-        let second = HandshakePublicKeys::from_server_hello_packet(&second_hello)
-            .expect("parse second hello");
+        let second = HandshakePublicKeys::parse_server_hello_for_expected_identity(
+            &second_hello,
+            &expected_identity,
+        )
+        .expect("parse expected second hello");
         assert_eq!(second.identity_public, expected_identity);
         assert_eq!(second.x25519_public, parsed.x25519_public);
 
@@ -1251,7 +1273,13 @@ mod tests {
         let sender = UdpSocket::bind("127.0.0.1:0").await.expect("sender");
         let codec = SecureShardBlockCodec::new();
         let cells = codec
-            .encode_message(&key(), [0x49; 16], 6, 60, b"queue full shard")
+            .encode_message_with_external_ids_and_sequence(
+                &key(),
+                [0x49; 16],
+                6,
+                60,
+                b"queue full shard",
+            )
             .expect("encode");
         let packet = RelayPacket::shard(77, 6, &cells[0]).expect("packet");
         sender
@@ -1286,7 +1314,13 @@ mod tests {
         let sender = UdpSocket::bind("127.0.0.1:0").await.expect("sender");
         let codec = SecureShardBlockCodec::new();
         let cells = codec
-            .encode_message(&key(), [0x59; 16], 7, 70, b"send delay shard")
+            .encode_message_with_external_ids_and_sequence(
+                &key(),
+                [0x59; 16],
+                7,
+                70,
+                b"send delay shard",
+            )
             .expect("encode");
         let packet = RelayPacket::shard(77, 7, &cells[0]).expect("packet");
         sender
@@ -1311,7 +1345,13 @@ mod tests {
         let sender = UdpSocket::bind("127.0.0.1:0").await.expect("sender");
         let codec = SecureShardBlockCodec::new();
         let cells = codec
-            .encode_message(&key(), [0x39; 16], 5, 50, b"metrics shard")
+            .encode_message_with_external_ids_and_sequence(
+                &key(),
+                [0x39; 16],
+                5,
+                50,
+                b"metrics shard",
+            )
             .expect("encode");
         let packet = RelayPacket::shard(77, 5, &cells[0]).expect("packet");
         sender

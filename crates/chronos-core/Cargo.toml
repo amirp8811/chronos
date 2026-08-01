@@ -24,8 +24,3 @@ libc = "0.2"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
-
-
-[[bench]]
-name = "constant_time"
-harness = false

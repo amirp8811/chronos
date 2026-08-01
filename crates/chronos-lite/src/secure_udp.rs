@@ -145,7 +145,13 @@ mod tests {
         let codec = SecureShardBlockCodec::new();
         let message = b"chronos-lite localhost secure UDP shard integration".repeat(64);
         let cells = codec
-            .encode_message(&test_key(), [0x11; 16], 100, 50_000, &message)
+            .encode_message_with_external_ids_and_sequence(
+                &test_key(),
+                [0x11; 16],
+                100,
+                50_000,
+                &message,
+            )
             .expect("encode");
 
         let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("receiver");
@@ -179,7 +185,13 @@ mod tests {
         let codec = SecureShardBlockCodec::new();
         let message = b"sender to relay to receiver secure shard path".repeat(96);
         let cells = codec
-            .encode_message(&test_key(), [0x22; 16], 101, 60_000, &message)
+            .encode_message_with_external_ids_and_sequence(
+                &test_key(),
+                [0x22; 16],
+                101,
+                60_000,
+                &message,
+            )
             .expect("encode");
 
         let relay = UdpSocket::bind("127.0.0.1:0").await.expect("relay");
@@ -289,7 +301,13 @@ mod tests {
     fn relay_datagram_processing_rejects_duplicate_sequence() {
         let codec = SecureShardBlockCodec::new();
         let cells = codec
-            .encode_message(&test_key(), [0x44; 16], 102, 70_000, b"duplicate relay seq")
+            .encode_message_with_external_ids_and_sequence(
+                &test_key(),
+                [0x44; 16],
+                102,
+                70_000,
+                b"duplicate relay seq",
+            )
             .expect("encode");
         let packet = RelayPacket::shard(1234, 1, &cells[0]).expect("packet");
         let bytes = packet.encode().expect("encode");

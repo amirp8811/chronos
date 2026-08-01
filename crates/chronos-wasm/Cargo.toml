@@ -5,11 +5,6 @@ edition = "2024"
 authors = ["Clean-Slate Anonymous Networking Working Group"]
 description = "Experimental WebAssembly bindings for CHRONOS protocol demonstrations"
 
-[features]
-default = []
-# Retains unimplemented browser-behaviour models for local demonstrations only.
-simulation = []
-
 [dependencies]
 chronos-core = { path = "../chronos-core" }
 log = "0.4"

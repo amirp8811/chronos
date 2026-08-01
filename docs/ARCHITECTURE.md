@@ -64,7 +64,7 @@ indistinguishability.
 | `chronos-core` no-`std` subset | Implemented and checked | Only allocation-friendly cryptographic/math modules are compiled without `std`; runtime services remain `std`-only. |
 | Erasure codec and adaptive mixing policy | Prototype | In-process algorithms and measurements, not network protection claims. |
 | Dataplane abstraction | Prototype interface | It is not a validated high-performance networking path. |
-| Client applications | Planned scaffolds | No supported mobile or browser client exists. |
+| Client applications | Not included | No mobile or browser application is shipped in this repository. |
 | Optional onion-header simulation | Simulation | It demonstrates header mutation only and is feature-gated; it is not part of the default API. |
 
 ## Optional simulation feature

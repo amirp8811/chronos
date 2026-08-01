@@ -95,7 +95,7 @@ impl SecureShardCell {
     /// durable, monotonic sequence allocator. Reusing `seq` with the same key
     /// and route tag reuses a ChaCha20-Poly1305 nonce. New code should use
     /// `SecureCellSender`, which allocates each sequence exactly once.
-    pub fn encrypt(
+    pub fn encrypt_with_external_sequence(
         key: &[u8; 32],
         route_tag: [u8; 16],
         seq: u64,
@@ -257,7 +257,13 @@ impl SecureCellSender {
             return Err(SecureCellError::SequenceExhausted);
         }
         let sequence = self.next_sequence;
-        let cell = SecureShardCell::encrypt(&self.key, self.route_tag, sequence, flags, payload)?;
+        let cell = SecureShardCell::encrypt_with_external_sequence(
+            &self.key,
+            self.route_tag,
+            sequence,
+            flags,
+            payload,
+        )?;
         self.next_sequence += 1;
         Ok(cell)
     }
@@ -373,7 +379,9 @@ mod tests {
     fn secure_cell_round_trips_fixed_size_bytes() {
         let key = test_key();
         let payload = b"authenticated CHRONOS payload";
-        let cell = SecureShardCell::encrypt(&key, [1u8; 16], 42, 0xA0, payload).expect("encrypt");
+        let cell =
+            SecureShardCell::encrypt_with_external_sequence(&key, [1u8; 16], 42, 0xA0, payload)
+                .expect("encrypt");
         let bytes = cell.to_app_cell_bytes();
         assert_eq!(bytes.len(), APP_CELL_PAYLOAD_SIZE);
 
@@ -385,7 +393,9 @@ mod tests {
     #[test]
     fn secure_cell_detects_ciphertext_tampering() {
         let key = test_key();
-        let mut cell = SecureShardCell::encrypt(&key, [1u8; 16], 43, 0, b"msg").expect("encrypt");
+        let mut cell =
+            SecureShardCell::encrypt_with_external_sequence(&key, [1u8; 16], 43, 0, b"msg")
+                .expect("encrypt");
         cell.ciphertext[0] ^= 0x80;
         assert_eq!(
             cell.decrypt(&key),
@@ -396,7 +406,9 @@ mod tests {
     #[test]
     fn secure_cell_detects_reserved_tampering() {
         let key = test_key();
-        let mut cell = SecureShardCell::encrypt(&key, [1u8; 16], 46, 0, b"msg").expect("encrypt");
+        let mut cell =
+            SecureShardCell::encrypt_with_external_sequence(&key, [1u8; 16], 46, 0, b"msg")
+                .expect("encrypt");
         cell.reserved[0] = 1;
         assert_eq!(
             cell.decrypt(&key),
@@ -407,7 +419,9 @@ mod tests {
     #[test]
     fn secure_cell_detects_authenticated_header_tampering() {
         let key = test_key();
-        let mut cell = SecureShardCell::encrypt(&key, [1u8; 16], 44, 0, b"msg").expect("encrypt");
+        let mut cell =
+            SecureShardCell::encrypt_with_external_sequence(&key, [1u8; 16], 44, 0, b"msg")
+                .expect("encrypt");
         cell.flags ^= 0x01;
         assert_eq!(
             cell.decrypt(&key),
@@ -420,7 +434,7 @@ mod tests {
         let key = test_key();
         let payload = vec![0u8; SECURE_CELL_CIPHERTEXT_SIZE + 1];
         assert!(matches!(
-            SecureShardCell::encrypt(&key, [1u8; 16], 45, 0, &payload),
+            SecureShardCell::encrypt_with_external_sequence(&key, [1u8; 16], 45, 0, &payload),
             Err(SecureCellError::PayloadTooLarge { .. })
         ));
     }
@@ -465,7 +479,9 @@ mod tests {
     #[test]
     fn receiver_authenticates_then_rejects_replay() {
         let key = test_key();
-        let cell = SecureShardCell::encrypt(&key, [2u8; 16], 77, 0, b"hello").expect("encrypt");
+        let cell =
+            SecureShardCell::encrypt_with_external_sequence(&key, [2u8; 16], 77, 0, b"hello")
+                .expect("encrypt");
         let mut receiver = SecureCellReceiver::new(key, 32).expect("receiver");
         assert_eq!(receiver.open(&cell).expect("first open"), b"hello");
         assert_eq!(

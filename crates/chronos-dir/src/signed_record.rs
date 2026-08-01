@@ -1,17 +1,14 @@
 //! Ed25519-authenticated relay records for the local directory API.
 
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-#[cfg(test)]
-use ed25519_dalek::{Signer, SigningKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 
 use crate::store::{RelayRecord, RelayRecordError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignedRelayRecord {
     pub record: RelayRecord,
-    /// The production API requires this to match `record.node_id`: a relay
-    /// self-authenticates its descriptor rather than accepting an arbitrary
-    /// signer label.
+    /// A relay self-authenticates its descriptor: this must equal
+    /// `record.node_id`, rather than being an arbitrary signer label.
     pub signer_id: String,
     pub verifying_key: [u8; 32],
     pub signature: [u8; 64],
@@ -24,14 +21,15 @@ pub enum SignedRecordError {
     Record(RelayRecordError),
 }
 
-#[cfg(test)]
+/// Signs a relay's complete descriptor using its stable identity signing key.
 pub fn sign_record(
     record: RelayRecord,
     signer_id: &str,
     signing_key: &SigningKey,
 ) -> SignedRelayRecord {
-    let message = record_message(&record, signer_id);
-    let signature = signing_key.sign(&message).to_bytes();
+    let signature = signing_key
+        .sign(&record_message(&record, signer_id))
+        .to_bytes();
     SignedRelayRecord {
         record,
         signer_id: signer_id.to_string(),
@@ -40,6 +38,7 @@ pub fn sign_record(
     }
 }
 
+/// Verifies signature, self-identity binding, key material, and freshness.
 pub fn verify_record_at(
     signed: &SignedRelayRecord,
     now_unix: u64,
@@ -56,6 +55,7 @@ pub fn verify_record_at(
         .record
         .validate_freshness(now_unix, max_lifetime_seconds)
         .map_err(SignedRecordError::Record)?;
+
     let verifying_key = VerifyingKey::from_bytes(&signed.verifying_key)
         .map_err(|_| SignedRecordError::InvalidSignature)?;
     let signature = Signature::from_bytes(&signed.signature);
@@ -67,8 +67,8 @@ pub fn verify_record_at(
         .map_err(|_| SignedRecordError::InvalidSignature)
 }
 
+/// Canonical, length-prefixed record bytes covered by the identity signature.
 pub fn record_message(record: &RelayRecord, signer_id: &str) -> Vec<u8> {
-    // Length-prefixing prevents field-boundary ambiguity in signed input.
     let mut message = Vec::new();
     message.extend_from_slice(b"chronos-dir-record-v3");
     append_field(&mut message, signer_id.as_bytes());

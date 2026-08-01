@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 use std::collections::BTreeSet;
 
 use crate::gf28::ReedSolomon16_10;
-use crate::secure_cell::{ReceiveCellError, SecureCellReceiver, SecureShardCell};
+use crate::secure_cell::{ReceiveCellError, SecureCellReceiver, SecureCellSender, SecureShardCell};
 
 pub const SHARD_STREAM_MAGIC: [u8; 4] = *b"SHD7";
 pub const SHARD_STREAM_K: usize = 10;
@@ -40,6 +40,8 @@ pub enum ShardStreamError {
     InsufficientValidShards { got: usize, need: usize },
     ErasureDecode(String),
     InvalidRecoveredLength { got: usize, expected: usize },
+    SequenceRangeExhausted,
+    BlockIdExhausted,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,12 +125,30 @@ impl SecureShardBlockCodec {
         SHARD_STREAM_K * SHARD_STREAM_MAX_SYMBOL_BYTES
     }
 
-    pub fn encode_message(
+    /// Encodes using externally managed sequence and block identifiers.
+    ///
+    /// This is intentionally explicit because reusing a sequence with the same
+    /// AEAD key and route tag breaks nonce safety. Normal callers should use
+    /// `SecureShardBlockEncoder`.
+    pub fn encode_message_with_external_ids_and_sequence(
         &self,
         key: &[u8; 32],
         route_tag: [u8; 16],
         block_id: u64,
-        seq_base: u64,
+        sequence_base: u64,
+        message: &[u8],
+    ) -> Result<Vec<SecureShardCell>, ShardStreamError> {
+        if sequence_base > u64::MAX - SHARD_STREAM_N as u64 {
+            return Err(ShardStreamError::SequenceRangeExhausted);
+        }
+        let mut sender = SecureCellSender::with_next_sequence(*key, route_tag, sequence_base);
+        self.encode_message_with_sender(&mut sender, block_id, message)
+    }
+
+    fn encode_message_with_sender(
+        &self,
+        sender: &mut SecureCellSender,
+        block_id: u64,
         message: &[u8],
     ) -> Result<Vec<SecureShardCell>, ShardStreamError> {
         if message.len() > self.max_message_bytes() {
@@ -179,14 +199,9 @@ impl SecureShardBlockCodec {
                 } else {
                     shard_index as u8
                 };
-                SecureShardCell::encrypt(
-                    key,
-                    route_tag,
-                    seq_base + shard_index as u64,
-                    flags,
-                    &plain.encode(),
-                )
-                .map_err(|e| ShardStreamError::Cell(ReceiveCellError::Cell(e)))
+                sender
+                    .seal(flags, &plain.encode())
+                    .map_err(|e| ShardStreamError::Cell(ReceiveCellError::Cell(e)))
             })
             .collect()
     }
@@ -260,6 +275,61 @@ impl SecureShardBlockCodec {
     }
 }
 
+/// Stateful safe encoder for successive SHARD-Stream blocks.
+///
+/// It owns the secure-cell sender and monotonically advances a block identifier,
+/// so normal callers never choose AEAD sequence values or block identifiers.
+pub struct SecureShardBlockEncoder {
+    codec: SecureShardBlockCodec,
+    sender: SecureCellSender,
+    next_block_id: u64,
+}
+
+impl SecureShardBlockEncoder {
+    pub fn new(key: [u8; 32], route_tag: [u8; 16]) -> Self {
+        Self::with_next_identifiers(key, route_tag, 0, 0)
+    }
+
+    /// Restores durable high-water marks for a previously used key domain.
+    /// Both identifiers are required: restoring only a block identifier while
+    /// resetting cell sequence numbers would risk AEAD nonce reuse.
+    pub fn with_next_identifiers(
+        key: [u8; 32],
+        route_tag: [u8; 16],
+        next_block_id: u64,
+        next_sequence: u64,
+    ) -> Self {
+        Self {
+            codec: SecureShardBlockCodec::new(),
+            sender: SecureCellSender::with_next_sequence(key, route_tag, next_sequence),
+            next_block_id,
+        }
+    }
+
+    pub fn next_block_id(&self) -> u64 {
+        self.next_block_id
+    }
+
+    pub fn next_sequence(&self) -> u64 {
+        self.sender.next_sequence()
+    }
+
+    pub fn encode_message(
+        &mut self,
+        message: &[u8],
+    ) -> Result<Vec<SecureShardCell>, ShardStreamError> {
+        if self.next_block_id == u64::MAX {
+            return Err(ShardStreamError::BlockIdExhausted);
+        }
+        let block_id = self.next_block_id;
+        let cells = self
+            .codec
+            .encode_message_with_sender(&mut self.sender, block_id, message)?;
+        self.next_block_id += 1;
+        Ok(cells)
+    }
+}
+
 impl Default for SecureShardBlockCodec {
     fn default() -> Self {
         Self::new()
@@ -280,7 +350,7 @@ mod tests {
         let codec = SecureShardBlockCodec::new();
         let message = (0..4096).map(|i| (i % 251) as u8).collect::<Vec<_>>();
         let cells = codec
-            .encode_message(&key(), [0xAA; 16], 7, 1000, &message)
+            .encode_message_with_external_ids_and_sequence(&key(), [0xAA; 16], 7, 1000, &message)
             .expect("encode");
         assert_eq!(cells.len(), SHARD_STREAM_N);
 
@@ -293,11 +363,41 @@ mod tests {
     }
 
     #[test]
+    fn stateful_encoder_allocates_unique_sequences_and_block_ids() {
+        let mut encoder = SecureShardBlockEncoder::new(key(), [0xE1; 16]);
+        let first = encoder.encode_message(b"first block").expect("first");
+        let second = encoder.encode_message(b"second block").expect("second");
+        assert_eq!(first.len(), SHARD_STREAM_N);
+        assert_eq!(second.len(), SHARD_STREAM_N);
+        assert_eq!(first[0].sequence(), 0);
+        assert_eq!(first[SHARD_STREAM_N - 1].sequence(), 15);
+        assert_eq!(second[0].sequence(), 16);
+        assert_eq!(encoder.next_sequence(), 32);
+        assert_eq!(encoder.next_block_id(), 2);
+        assert_ne!(first[0].sequence(), second[0].sequence());
+    }
+
+    #[test]
+    fn external_sequence_range_is_explicit_and_checked() {
+        let codec = SecureShardBlockCodec::new();
+        assert_eq!(
+            codec.encode_message_with_external_ids_and_sequence(
+                &key(),
+                [0xE2; 16],
+                1,
+                u64::MAX - 15,
+                b"will not fit a full block",
+            ),
+            Err(ShardStreamError::SequenceRangeExhausted)
+        );
+    }
+
+    #[test]
     fn shard_stream_skips_tampered_cells_when_enough_valid_remain() {
         let codec = SecureShardBlockCodec::new();
         let message = b"resilient authenticated erasure block".repeat(64);
         let mut cells = codec
-            .encode_message(&key(), [0xBB; 16], 8, 2000, &message)
+            .encode_message_with_external_ids_and_sequence(&key(), [0xBB; 16], 8, 2000, &message)
             .expect("encode");
         cells[2].ciphertext[0] ^= 0x55;
         cells[5].auth_tag[0] ^= 0x55;
@@ -311,7 +411,7 @@ mod tests {
         let codec = SecureShardBlockCodec::new();
         let message = b"too few shards".repeat(32);
         let cells = codec
-            .encode_message(&key(), [0xCC; 16], 9, 3000, &message)
+            .encode_message_with_external_ids_and_sequence(&key(), [0xCC; 16], 9, 3000, &message)
             .expect("encode");
         let err = codec
             .decode_message(key(), &cells[..9])
@@ -330,7 +430,7 @@ mod tests {
         let codec = SecureShardBlockCodec::new();
         let msg = vec![0u8; codec.max_message_bytes() + 1];
         assert!(matches!(
-            codec.encode_message(&key(), [0xDD; 16], 10, 4000, &msg),
+            codec.encode_message_with_external_ids_and_sequence(&key(), [0xDD; 16], 10, 4000, &msg),
             Err(ShardStreamError::MessageTooLarge { .. })
         ));
     }
