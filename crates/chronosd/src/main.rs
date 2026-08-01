@@ -3,16 +3,14 @@
 
 #[cfg(test)]
 mod dataplane_probe;
-mod metrics;
 #[cfg(test)]
 mod mixing_engine;
 #[cfg(test)]
 mod nic_control;
-mod queue;
-mod udp_relay;
 
 use chronos_core::NodeKeyMaterial;
 use chronosd::config::{ChronosdConfig, load_chronosd_config};
+use chronosd::{metrics, udp_relay};
 use log::{info, warn};
 
 fn parse_hex_32(value: &str) -> Option<[u8; 32]> {

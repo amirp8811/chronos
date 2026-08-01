@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use crate::handshake::X25519NodeSecret;
 use crate::hybrid_route::MlKem768RouteKeypair;
 use ed25519_dalek::SigningKey;
+use ml_kem::kem::KeyExport;
+use sha2::{Digest, Sha256};
 
 pub const X25519_KEY_FILE: &str = "x25519.nodekey";
 pub const MLKEM768_SEED_FILE: &str = "mlkem768.seed";
@@ -59,6 +61,12 @@ impl NodeKeyMaterial {
             ml_kem_768: MlKem768RouteKeypair::generate(),
             identity_signing: SigningKey::from_bytes(&identity_bytes),
         })
+    }
+
+    /// Returns the SHA-256 digest of the relay's advertised ML-KEM public key
+    /// for inclusion in a signed directory record.
+    pub fn ml_kem_public_hash(&self) -> [u8; 32] {
+        Sha256::digest(self.ml_kem_768.encapsulation_key.to_bytes()).into()
     }
 
     pub fn save_to_dir(&self, dir: impl AsRef<Path>) -> Result<(), KeyStoreError> {
@@ -301,6 +309,8 @@ mod tests {
             loaded.identity_signing.to_bytes(),
             keys.identity_signing.to_bytes()
         );
+        assert_eq!(loaded.ml_kem_public_hash(), keys.ml_kem_public_hash());
+        assert!(keys.ml_kem_public_hash().iter().any(|byte| *byte != 0));
         let _ = fs::remove_dir_all(dir);
     }
 

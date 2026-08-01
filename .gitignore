@@ -7,3 +7,4 @@ target/
 .VSCodeCounter/
 *.tar.gz
 artifacts/
+reports/

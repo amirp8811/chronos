@@ -74,6 +74,10 @@ impl StaticRouteTable {
         self.routes.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.routes.is_empty()
+    }
+
     pub fn insert(&mut self, stream_id: u64, addr: SocketAddr) {
         self.routes.insert(stream_id, addr);
     }
@@ -290,10 +294,16 @@ pub struct ChronosUdpRelay {
 }
 
 impl ChronosUdpRelay {
-    #[cfg(test)]
+    /// Binds a local UDP relay with secure default replay and queue limits.
     pub async fn bind(bind_addr: &str, routes: StaticRouteTable) -> Result<Self, UdpRelayError> {
-        Self::bind_with_replay_config(bind_addr, routes, 4096, std::time::Duration::from_secs(300))
-            .await
+        Self::bind_with_runtime_config(
+            bind_addr,
+            routes,
+            4096,
+            std::time::Duration::from_secs(300),
+            1024,
+        )
+        .await
     }
 
     #[cfg(test)]

@@ -139,8 +139,8 @@ pub use route_layer::{
     LayeredRoutePacket, PeeledRouteLayer, ROUTE_LAYER_HEADER_SIZE, ROUTE_LAYER_MAGIC,
     ROUTE_LAYER_MAX_BODY, ROUTE_LAYER_TAG_SIZE, ROUTE_LAYER_VERSION, ROUTE_PACKET_HEADER_SIZE,
     ROUTE_PACKET_MAGIC, RouteCommand, RouteCommandKind, RouteHopSecret, RouteLayerError,
-    RouteLayerProcessor, RouteReplayCache, SingleUseReplyBlock, build_layered_route_packet,
-    peel_route_layer,
+    RouteLayerProcessor, RoutePacketBuilder, RouteReplayCache, SingleUseReplyBlock,
+    build_layered_route_packet, peel_route_layer,
 };
 
 #[cfg(feature = "std")]
