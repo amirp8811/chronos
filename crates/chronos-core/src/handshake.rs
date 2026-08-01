@@ -83,8 +83,14 @@ mod tests {
             .expect("bob key");
         assert_eq!(alice_key, bob_key);
 
-        let cell = SecureShardCell::encrypt(&alice_key, route_tag, 1, 0, b"x25519 link cell")
-            .expect("encrypt");
+        let cell = SecureShardCell::encrypt_with_external_sequence(
+            &alice_key,
+            route_tag,
+            1,
+            0,
+            b"x25519 link cell",
+        )
+        .expect("encrypt");
         assert_eq!(
             cell.decrypt(&bob_key).expect("decrypt"),
             b"x25519 link cell"

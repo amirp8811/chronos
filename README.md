@@ -24,7 +24,7 @@ It is developed as a self-contained prototype with explicit security boundaries.
 | Directory API | Local prototype | Signed relay-record ingestion is implemented. The TCP line protocol is not a public directory service or consensus system. |
 | Erasure coding and mix policy | Prototype models | The codecs and scheduling policy are tested in-process. They are not evidence of network-level anonymity. |
 | Send delay | Implemented as a relay option | It delays actual sends only. It does **not** emit cover traffic or provide constant-rate egress. |
-| Dataplane, mobile, browser, and directory consensus | Planned or simulated | These areas contain interfaces, experiments, or presentation scaffolds; they are not operational products. |
+| Dataplane, mobile, browser, and directory consensus | Not included as deployable components | There is no supported client application, browser transport, or directory consensus service in this repository. |
 | Optional onion-header simulation | Simulation only | It is feature-gated and deliberately excluded from the default public API. It is not a production cryptographic construction. |
 
 ## Build and validate
@@ -51,8 +51,8 @@ cargo run -p chronos-nettest
 | `crates/chronosd` | Experimental UDP relay daemon. |
 | `crates/chronos-dir` | Local authenticated directory-record prototype. |
 | `crates/chronos-sys-dataplane` | Hardware-abstraction boundary; the sole crate permitted to contain `unsafe` code. |
-| `crates/chronos-lite`, `crates/chronos-wasm` | Client-side experiments and bindings. |
-| `apps/` | Clearly labelled interface demonstrations and future client scaffolds. |
+| `crates/chronos-lite` | Parse-only prototype configuration and local algorithm tests; no runnable client. |
+| `crates/chronos-wasm` | Local WebAssembly protocol bindings and bounded frame parser; no browser transport. |
 | `docs/` | Architecture, protocol, and status notes. |
 | `scripts/` | Validation and experiment tooling. |
 

@@ -260,18 +260,29 @@ impl HandshakePublicKeys {
         HandshakePacket::new(HandshakePacketType::ServerHello, payload)
     }
 
-    pub fn from_server_hello_packet_for_identity(
+    /// Parses a signed hello and verifies that its identity equals the caller's
+    /// expected stable relay identity. Use this for all trust decisions.
+    pub fn parse_server_hello_for_expected_identity(
         packet: &HandshakePacket,
         expected_identity: &[u8; 32],
     ) -> Result<Self, HandshakeError> {
-        let parsed = Self::from_server_hello_packet(packet)?;
+        let parsed = Self::parse_self_signed_server_hello_unpinned(packet)?;
         if &parsed.identity_public != expected_identity {
             return Err(HandshakeError::IdentityMismatch);
         }
         Ok(parsed)
     }
 
-    pub fn from_server_hello_packet(packet: &HandshakePacket) -> Result<Self, HandshakeError> {
+    /// Parses and checks the hello's included self-signature without authenticating
+    /// the peer to the caller.
+    ///
+    /// **Do not use this for a trust decision.** Any peer can present a valid
+    /// self-signed identity. Production-facing callers must use
+    /// `parse_server_hello_for_expected_identity` or
+    /// `client_begin_handshake_for_identity`.
+    pub fn parse_self_signed_server_hello_unpinned(
+        packet: &HandshakePacket,
+    ) -> Result<Self, HandshakeError> {
         ensure_supported_suite(packet)?;
         if packet.packet_type != HandshakePacketType::ServerHello {
             return Err(HandshakeError::WrongPacketType {
@@ -384,7 +395,7 @@ pub fn client_begin_handshake_for_identity(
     client_x25519: &X25519NodeSecret,
 ) -> Result<(HandshakePacket, ClientHandshakeState), HandshakeError> {
     ensure_supported_suite(server_hello)?;
-    let server_keys = HandshakePublicKeys::from_server_hello_packet_for_identity(
+    let server_keys = HandshakePublicKeys::parse_server_hello_for_expected_identity(
         server_hello,
         expected_identity,
     )?;
@@ -595,7 +606,7 @@ mod tests {
             .to_server_hello_packet()
             .expect("hello");
         assert!(matches!(
-            HandshakePublicKeys::from_server_hello_packet_for_identity(&hello, &[0xEE; 32]),
+            HandshakePublicKeys::parse_server_hello_for_expected_identity(&hello, &[0xEE; 32]),
             Err(HandshakeError::IdentityMismatch)
         ));
     }
@@ -637,7 +648,7 @@ mod tests {
             .expect("hello");
         server_hello.payload.push(0);
         assert!(matches!(
-            HandshakePublicKeys::from_server_hello_packet(&server_hello),
+            HandshakePublicKeys::parse_self_signed_server_hello_unpinned(&server_hello),
             Err(HandshakeError::InvalidLength { .. })
         ));
     }

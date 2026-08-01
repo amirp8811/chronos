@@ -322,7 +322,14 @@ mod tests {
 
     fn cell() -> SecureShardCell {
         let key = derive_link_key(&[0x77u8; 32], &[0x88u8; 16]).expect("key");
-        SecureShardCell::encrypt(&key, [0x88; 16], 12, 0, b"relay packet shard").expect("cell")
+        SecureShardCell::encrypt_with_external_sequence(
+            &key,
+            [0x88; 16],
+            12,
+            0,
+            b"relay packet shard",
+        )
+        .expect("cell")
     }
 
     #[test]

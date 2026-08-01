@@ -13,7 +13,7 @@
 //! `UPSERT` exists only behind an explicit local-development switch and is never
 //! accepted in the default configuration.
 
-use crate::signed_record::{SignedRelayRecord, verify_record_at};
+use crate::signed_record::SignedRelayRecord;
 use crate::store::{DirectoryStore, RelayRecord};
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -92,10 +92,8 @@ pub fn handle_command(
                 verifying_key,
                 signature,
             };
-            verify_record_at(&signed, now_unix, config.max_record_lifetime_seconds)
-                .map_err(|_| DirectoryApiError::InvalidSignedRecord)?;
             store
-                .upsert(signed.record)
+                .upsert_signed(signed, now_unix, config.max_record_lifetime_seconds)
                 .map_err(|_| DirectoryApiError::InvalidSignedRecord)?;
             Ok("OK\n".to_string())
         }
@@ -120,7 +118,7 @@ pub fn handle_command(
             if record.expires_at_unix <= now_unix {
                 return Err(DirectoryApiError::InvalidSignedRecord);
             }
-            store.upsert_unsafe_for_development(record);
+            store.upsert_unsigned_for_local_development_only(record);
             Ok("OK UNSAFE_LOCAL_DEVELOPMENT\n".to_string())
         }
         Some("GET") => {

@@ -9,12 +9,6 @@ pub struct ChronosdConfig {
     pub node_id_fp: String,
     pub operating_role: String,
     pub jurisdiction: String,
-    pub interface: String,
-    pub preferred_engine: String,
-    pub enable_resctrl_l3_locking: bool,
-    pub l3_cache_slice_mb: f64,
-    pub enable_toeplitz_salt_shuffling: bool,
-    pub toeplitz_rss_threshold_req_sec: u64,
     pub key_dir: String,
     pub udp_relay_bind: Option<String>,
     pub static_routes: String,
@@ -39,12 +33,6 @@ impl Default for ChronosdConfig {
             node_id_fp: "local-chronosd.chr".to_string(),
             operating_role: "core_relay".to_string(),
             jurisdiction: "local".to_string(),
-            interface: "lo".to_string(),
-            preferred_engine: "tokio_udp".to_string(),
-            enable_resctrl_l3_locking: false,
-            l3_cache_slice_mb: 4.0,
-            enable_toeplitz_salt_shuffling: false,
-            toeplitz_rss_threshold_req_sec: 31_250,
             key_dir: ".chronosd-keys".to_string(),
             udp_relay_bind: None,
             static_routes: String::new(),
@@ -69,7 +57,7 @@ pub enum ConfigError {
     InvalidLine(String),
     InvalidBool(String),
     InvalidInteger(String),
-    InvalidFloat(String),
+    InvalidKey(String),
 }
 
 impl std::fmt::Display for ConfigError {
@@ -146,31 +134,12 @@ fn parse_usize(value: &str) -> Result<usize, ConfigError> {
         .parse()
         .map_err(|_| ConfigError::InvalidInteger(value.to_string()))
 }
-fn parse_f64(value: &str) -> Result<f64, ConfigError> {
-    value
-        .trim()
-        .parse()
-        .map_err(|_| ConfigError::InvalidFloat(value.to_string()))
-}
-
 fn apply_scalar(cfg: &mut ChronosdConfig, key: &str, value: &str) -> Result<(), ConfigError> {
     match key {
         "node.node_name" => cfg.node_name = parse_string(value)?,
         "node.node_id_fp" => cfg.node_id_fp = parse_string(value)?,
         "node.operating_role" => cfg.operating_role = parse_string(value)?,
         "node.jurisdiction" => cfg.jurisdiction = parse_string(value)?,
-        "data_plane.interface" => cfg.interface = parse_string(value)?,
-        "data_plane.preferred_engine" => cfg.preferred_engine = parse_string(value)?,
-        "hardware_hardening.enable_resctrl_l3_locking" => {
-            cfg.enable_resctrl_l3_locking = parse_bool(value)?
-        }
-        "hardware_hardening.l3_cache_slice_mb" => cfg.l3_cache_slice_mb = parse_f64(value)?,
-        "hardware_hardening.enable_toeplitz_salt_shuffling" => {
-            cfg.enable_toeplitz_salt_shuffling = parse_bool(value)?
-        }
-        "hardware_hardening.toeplitz_rss_threshold_req_sec" => {
-            cfg.toeplitz_rss_threshold_req_sec = parse_u64(value)?
-        }
         "runtime.key_dir" => cfg.key_dir = parse_string(value)?,
         "runtime.udp_relay_bind" => cfg.udp_relay_bind = Some(parse_string(value)?),
         "runtime.static_routes" => cfg.static_routes = parse_string(value)?,
@@ -187,7 +156,7 @@ fn apply_scalar(cfg: &mut ChronosdConfig, key: &str, value: &str) -> Result<(), 
         "security.pow_default_difficulty_zero_bits" => {
             cfg.pow_default_difficulty_zero_bits = parse_u64(value)? as u32;
         }
-        _ => {}
+        _ => return Err(ConfigError::InvalidKey(key.to_string())),
     }
     Ok(())
 }
@@ -204,14 +173,6 @@ node_name = "relay-a"
 node_id_fp = "relay-a.chr"
 operating_role = "core_relay"
 jurisdiction = "GB"
-[data_plane]
-interface = "eth0"
-preferred_engine = "tokio_udp"
-[hardware_hardening]
-enable_resctrl_l3_locking = true
-l3_cache_slice_mb = 8.0
-enable_toeplitz_salt_shuffling = true
-toeplitz_rss_threshold_req_sec = 123
 [security]
 pow_secret_env = "CHRONOSD_POW_SECRET_HEX"
 pow_window_seconds = 45
@@ -236,13 +197,11 @@ send_delay_ms = 2
             Some("CHRONOSD_POW_SECRET_HEX")
         );
         assert_eq!(cfg.pow_window_seconds, 45);
-        assert!(cfg.enable_resctrl_l3_locking);
     }
     #[test]
     fn rejects_invalid_bool() {
         assert_eq!(
-            parse_chronosd_config("[hardware_hardening]\nenable_resctrl_l3_locking = maybe")
-                .expect_err("bad"),
+            parse_chronosd_config("[runtime]\nenforce_sessions = maybe").expect_err("bad"),
             ConfigError::InvalidBool("maybe".to_string())
         );
     }

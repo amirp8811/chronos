@@ -89,7 +89,8 @@ pub use secure_cell::{
 
 pub use shard_stream::{
     SHARD_STREAM_FLAG_PARITY, SHARD_STREAM_HEADER_SIZE, SHARD_STREAM_K, SHARD_STREAM_MAGIC,
-    SHARD_STREAM_MAX_SYMBOL_BYTES, SHARD_STREAM_N, SecureShardBlockCodec, ShardStreamError,
+    SHARD_STREAM_MAX_SYMBOL_BYTES, SHARD_STREAM_N, SecureShardBlockCodec, SecureShardBlockEncoder,
+    ShardStreamError,
 };
 
 #[cfg(feature = "simulation")]

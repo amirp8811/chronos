@@ -9,6 +9,7 @@ explain every exception in source control.
 from pathlib import Path
 import re
 import sys
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 SCAN_DIRS = [ROOT / "crates", ROOT / "tools"]
@@ -110,6 +111,47 @@ def check_crate_roots() -> list[str]:
     return failures
 
 
+def check_fuzz_target_registration() -> list[str]:
+    """Require every target source to be a real registered cargo-fuzz binary."""
+    manifest_path = ROOT / "fuzz" / "Cargo.toml"
+    target_dir = ROOT / "fuzz" / "fuzz_targets"
+    if not manifest_path.exists() and not target_dir.exists():
+        return []
+    if not manifest_path.exists() or not target_dir.exists():
+        return ["fuzz: manifest and fuzz_targets directory must exist together"]
+
+    try:
+        manifest = tomllib.loads(manifest_path.read_text())
+    except tomllib.TOMLDecodeError as error:
+        return [f"fuzz/Cargo.toml: invalid TOML: {error}"]
+
+    bins = manifest.get("bin", [])
+    registered: set[Path] = set()
+    failures: list[str] = []
+    for binary in bins:
+        path_value = binary.get("path")
+        name = binary.get("name")
+        if not isinstance(name, str) or not isinstance(path_value, str):
+            failures.append("fuzz/Cargo.toml: every [[bin]] needs name and path")
+            continue
+        path = (manifest_path.parent / path_value).resolve()
+        if target_dir not in path.parents or path.suffix != ".rs":
+            failures.append(f"fuzz/Cargo.toml: {name} must point to fuzz_targets/*.rs")
+            continue
+        if not path.exists():
+            failures.append(f"fuzz/Cargo.toml: registered target missing: {path_value}")
+            continue
+        registered.add(path)
+        source = path.read_text(errors="replace")
+        if "fuzz_target!" not in source:
+            failures.append(f"{path.relative_to(ROOT)}: registered target does not call fuzz_target!")
+
+    actual = {path.resolve() for path in target_dir.glob("*.rs")}
+    for path in sorted(actual - registered):
+        failures.append(f"{path.relative_to(ROOT)}: unregistered fuzz target source")
+    return failures
+
+
 def main() -> int:
     failures: list[str] = []
     files_scanned = 0
@@ -119,6 +161,7 @@ def main() -> int:
                 files_scanned += 1
                 failures.extend(check_file(rust_file))
     failures.extend(check_crate_roots())
+    failures.extend(check_fuzz_target_registration())
 
     print(f"Static audit scanned {files_scanned} Rust files.")
     if failures:

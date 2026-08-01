@@ -1,21 +1,11 @@
-# Example configuration for the experimental chronosd relay.
-# This file is not a production deployment profile.
+# Configuration for the experimental UDP relay service.
+# This is not a production deployment profile.
 
 [node]
 node_name = "local-relay"
 node_id_fp = "local-relay.chr"
 operating_role = "relay"
 jurisdiction = "local"
-
-[data_plane]
-interface = "lo"
-preferred_engine = "tokio_udp"
-
-[hardware_hardening]
-enable_resctrl_l3_locking = false
-l3_cache_slice_mb = 4.0
-enable_toeplitz_salt_shuffling = false
-toeplitz_rss_threshold_req_sec = 31250
 
 [security]
 # Enabling PoW requires this environment variable to contain 64 hexadecimal

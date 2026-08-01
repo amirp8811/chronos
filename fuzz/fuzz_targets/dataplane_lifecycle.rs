@@ -1,4 +1,5 @@
 #![no_main]
+#![deny(unsafe_code)]
 
 use chronos_sys_dataplane::DescriptorLifecycle;
 use libfuzzer_sys::fuzz_target;

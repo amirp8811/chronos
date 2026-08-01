@@ -1,9 +1,10 @@
 #![no_main]
+#![deny(unsafe_code)]
 
-use chronos_wasm::stego_ws::SteganographicWebSocketEngine;
+use chronos_wasm::WebSocketBinaryFrameParser;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    let engine = SteganographicWebSocketEngine::new();
-    let _ = engine.parse_stego_ws_frame(data);
+    let parser = WebSocketBinaryFrameParser::default();
+    let _ = parser.parse_binary_frame(data);
 });

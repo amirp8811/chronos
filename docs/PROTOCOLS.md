@@ -70,7 +70,9 @@ configured secret to turn this feature on; there is no default admission secret.
 The local directory process accepts `UPSERT_SIGNED` records only by default.
 A record includes the relay address, real X25519 public key, ML-KEM public-key
 hash, expiry, Ed25519 public key, and signature. Records with zero public
-material, bad signatures, excessive lifetime, or expiration are rejected.
+material, bad signatures, excessive lifetime, or expiration are rejected. The
+on-disk `CHDIR002` format persists those signed fields and verifies every record
+again during load; the earlier stripped-record format is rejected.
 
 The plaintext `UPSERT` and remote `PRUNE` commands are disabled by default.
 They can be enabled only with explicit local-development environment switches.
