@@ -12,6 +12,15 @@ pub enum TdmCellKind {
     Cover,
 }
 
+/// Upper bound for one in-memory planning call. Larger epochs must be planned
+/// in chunks by the caller rather than allocating an unbounded vector.
+pub const TDM_MAX_EPOCH_SLOTS: u64 = 1_000_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TdmPlanError {
+    TooManySlots { got: u64, max: u64 },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TdmSlot {
     pub slot_index: u64,
@@ -33,7 +42,17 @@ impl TdmScheduler {
         }
     }
 
-    pub fn plan_epoch(&self, epoch_slots: u64, data_cells: u64) -> Vec<TdmSlot> {
+    pub fn plan_epoch(
+        &self,
+        epoch_slots: u64,
+        data_cells: u64,
+    ) -> Result<Vec<TdmSlot>, TdmPlanError> {
+        if epoch_slots > TDM_MAX_EPOCH_SLOTS {
+            return Err(TdmPlanError::TooManySlots {
+                got: epoch_slots,
+                max: TDM_MAX_EPOCH_SLOTS,
+            });
+        }
         let mut slots = Vec::with_capacity(epoch_slots as usize);
         for slot_index in 0..epoch_slots {
             let kind = if slot_index < data_cells {
@@ -49,7 +68,7 @@ impl TdmScheduler {
                 kind,
             });
         }
-        slots
+        Ok(slots)
     }
 }
 
@@ -59,7 +78,7 @@ mod tests {
     #[test]
     fn tdm_scheduler_fills_idle_slots_with_cover() {
         let s = TdmScheduler::new(Duration::from_millis(5), true);
-        let plan = s.plan_epoch(4, 2);
+        let plan = s.plan_epoch(4, 2).expect("plan");
         assert_eq!(plan.len(), 4);
         assert_eq!(plan[0].kind, TdmCellKind::Data);
         assert_eq!(plan[1].kind, TdmCellKind::Data);
@@ -68,9 +87,21 @@ mod tests {
     }
 
     #[test]
+    fn tdm_scheduler_rejects_unbounded_epoch_allocations() {
+        let scheduler = TdmScheduler::new(Duration::from_millis(1), false);
+        assert_eq!(
+            scheduler.plan_epoch(TDM_MAX_EPOCH_SLOTS + 1, 0),
+            Err(TdmPlanError::TooManySlots {
+                got: TDM_MAX_EPOCH_SLOTS + 1,
+                max: TDM_MAX_EPOCH_SLOTS,
+            })
+        );
+    }
+
+    #[test]
     fn tdm_scheduler_can_skip_cover_when_disabled() {
         let s = TdmScheduler::new(Duration::from_millis(1), false);
-        let plan = s.plan_epoch(8, 3);
+        let plan = s.plan_epoch(8, 3).expect("plan");
         assert_eq!(plan.len(), 3);
         assert!(plan.iter().all(|slot| slot.kind == TdmCellKind::Data));
     }

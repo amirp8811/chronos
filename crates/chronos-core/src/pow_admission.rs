@@ -15,18 +15,28 @@ pub struct PowChallenge {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PowAdmissionError {
     InvalidDifficulty,
+    InvalidServerSecret,
     InvalidNonce,
     Replay,
 }
 
 impl PowChallenge {
+    /// Creates a stateless challenge bound to non-empty, non-zero server key
+    /// material. Empty or all-zero material would make the token publicly
+    /// reproducible and is rejected.
     pub fn new_stateless(
         relay_id: [u8; 16],
         unix_window: u64,
         difficulty_zero_bits: u32,
         client_id: &[u8],
         server_secret: &[u8],
-    ) -> Self {
+    ) -> Result<Self, PowAdmissionError> {
+        if difficulty_zero_bits > 255 {
+            return Err(PowAdmissionError::InvalidDifficulty);
+        }
+        if server_secret.is_empty() || server_secret.iter().all(|byte| *byte == 0) {
+            return Err(PowAdmissionError::InvalidServerSecret);
+        }
         let mut h = Sha256::new();
         h.update(b"chronos-v7-pow-token");
         h.update(relay_id);
@@ -34,12 +44,12 @@ impl PowChallenge {
         h.update(difficulty_zero_bits.to_be_bytes());
         h.update(client_id);
         h.update(server_secret);
-        Self {
+        Ok(Self {
             relay_id,
             unix_window,
             difficulty_zero_bits,
             token: h.finalize().into(),
-        }
+        })
     }
 
     pub fn verify(&self, nonce: &[u8]) -> Result<(), PowAdmissionError> {
@@ -171,16 +181,36 @@ mod tests {
     #[test]
     fn challenge_token_binds_secret_client_difficulty_and_window() {
         let relay_id = [6; 16];
-        let a = PowChallenge::new_stateless(relay_id, 10, 8, b"client-a", b"alpha");
-        let changed_secret = PowChallenge::new_stateless(relay_id, 10, 8, b"client-a", b"bravo");
-        let changed_client = PowChallenge::new_stateless(relay_id, 10, 8, b"client-b", b"alpha");
+        let a =
+            PowChallenge::new_stateless(relay_id, 10, 8, b"client-a", b"alpha").expect("challenge");
+        let changed_secret =
+            PowChallenge::new_stateless(relay_id, 10, 8, b"client-a", b"bravo").expect("challenge");
+        let changed_client =
+            PowChallenge::new_stateless(relay_id, 10, 8, b"client-b", b"alpha").expect("challenge");
         let changed_difficulty =
-            PowChallenge::new_stateless(relay_id, 10, 9, b"client-a", b"alpha");
-        let changed_window = PowChallenge::new_stateless(relay_id, 11, 8, b"client-a", b"alpha");
+            PowChallenge::new_stateless(relay_id, 10, 9, b"client-a", b"alpha").expect("challenge");
+        let changed_window =
+            PowChallenge::new_stateless(relay_id, 11, 8, b"client-a", b"alpha").expect("challenge");
         assert_ne!(a.token, changed_secret.token);
         assert_ne!(a.token, changed_client.token);
         assert_ne!(a.token, changed_difficulty.token);
         assert_ne!(a.token, changed_window.token);
+    }
+
+    #[test]
+    fn challenge_rejects_empty_or_zero_server_secret() {
+        assert_eq!(
+            PowChallenge::new_stateless([1; 16], 1, 8, b"client", b""),
+            Err(PowAdmissionError::InvalidServerSecret)
+        );
+        assert_eq!(
+            PowChallenge::new_stateless([1; 16], 1, 8, b"client", &[0; 32]),
+            Err(PowAdmissionError::InvalidServerSecret)
+        );
+        assert_eq!(
+            PowChallenge::new_stateless([1; 16], 1, 256, b"client", b"key"),
+            Err(PowAdmissionError::InvalidDifficulty)
+        );
     }
 
     #[test]

@@ -29,12 +29,17 @@ pub fn chronos_wasm_version() -> String {
 
 /// Returns the number of slots in a locally computed scheduling model.
 #[wasm_bindgen]
-pub fn chronos_plan_simulated_slots(slots: u32, data_cells: u32, cover_when_idle: bool) -> u32 {
+pub fn chronos_plan_simulated_slots(
+    slots: u32,
+    data_cells: u32,
+    cover_when_idle: bool,
+) -> Result<u32, JsValue> {
     use chronos_core::tdm::TdmScheduler;
     use std::time::Duration;
-    TdmScheduler::new(Duration::from_millis(1), cover_when_idle)
+    let plan = TdmScheduler::new(Duration::from_millis(1), cover_when_idle)
         .plan_epoch(u64::from(slots), u64::from(data_cells))
-        .len() as u32
+        .map_err(|error| JsValue::from_str(&format!("slot planning rejected: {error:?}")))?;
+    u32::try_from(plan.len()).map_err(|_| JsValue::from_str("slot count exceeds u32"))
 }
 
 /// Runs a local authenticated-cell roundtrip self-test.

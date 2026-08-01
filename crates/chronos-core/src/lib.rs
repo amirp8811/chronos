@@ -48,9 +48,9 @@ pub use clock::StdClock;
 pub use clock::{Clock, ManualClock};
 
 pub use fountain::{
-    FountainConfig, FountainDecoder, FountainEncodeReport, FountainSymbol,
-    encode_payload_with_repair, fountain_encode, join_payload, progressive_recovery_count,
-    split_payload, try_decode_payload,
+    FOUNTAIN_MAX_REPAIR_SYMBOLS, FountainConfig, FountainDecoder, FountainEncodeReport,
+    FountainSymbol, encode_payload_with_repair, fountain_encode, join_payload,
+    progressive_recovery_count, split_payload, try_decode_payload,
 };
 
 pub use framing::{
@@ -97,7 +97,7 @@ pub use shard_stream::{
 pub use sphinx_sim::{SimulationOnionCell, SimulationOnionError, SphinxSimulationProcessor};
 
 #[cfg(feature = "std")]
-pub use tdm::{TdmCellKind, TdmScheduler, TdmSlot};
+pub use tdm::{TDM_MAX_EPOCH_SLOTS, TdmCellKind, TdmPlanError, TdmScheduler, TdmSlot};
 
 #[cfg(feature = "std")]
 pub use anonymity_metrics::{
