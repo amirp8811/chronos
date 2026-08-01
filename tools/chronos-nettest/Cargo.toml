@@ -2,7 +2,7 @@
 name = "chronos-nettest"
 version = "0.1.0"
 edition = "2024"
-description = "Chutney-like local multi-process CHRONOS relay smoke test"
+description = "Local CHRONOS relay experiment harness and smoke scenarios"
 publish = false
 
 [dependencies]

@@ -35,6 +35,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --locked
 cargo check -p chronos-core --no-default-features
 python3 scripts/static_audit.py
+# Build-check fuzz targets with nightly sanitizer support; this is not a long-running campaign.
+cargo +nightly fuzz build
 ```
 
 For the local experiment harness:
@@ -48,12 +50,15 @@ cargo run -p chronos-nettest
 | Path | Purpose |
 | --- | --- |
 | `crates/chronos-core` | Protocol primitives. Its default build is `std`; a deliberately smaller, audited subset builds without `std`. |
-| `crates/chronosd` | Experimental UDP relay daemon. |
-| `crates/chronos-dir` | Local authenticated directory-record prototype. |
-| `crates/chronos-sys-dataplane` | Hardware-abstraction boundary; the sole crate permitted to contain `unsafe` code. |
-| `crates/chronos-lite` | Parse-only prototype configuration and local algorithm tests; no runnable client. |
+| `crates/chronosd` | Experimental UDP relay daemon for local protocol testing. |
+| `crates/chronos-dir` | Local signed relay-record directory prototype. |
+| `crates/chronos-sys-dataplane` | Isolated experimental dataplane HAL boundary; the sole crate permitted to contain `unsafe` code. |
+| `crates/chronos-lite` | Parse-only lite configuration and local algorithm tests; no runnable client. |
 | `crates/chronos-wasm` | Local WebAssembly protocol bindings and bounded frame parser; no browser transport. |
-| `docs/` | Architecture, protocol, and status notes. |
+| `tools/chronos-nettest` | Local experiment harness and relay smoke scenarios. |
+| `fuzz/` | libFuzzer targets for parsers, configs, protocol boundaries, and local frame parsing. |
+| `configs/` | Example local prototype configuration files. |
+| `docs/` | Architecture, protocol, security, and status notes. |
 | `scripts/` | Validation and experiment tooling. |
 
 ## Documentation
