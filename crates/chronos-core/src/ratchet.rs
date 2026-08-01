@@ -43,7 +43,7 @@ impl SessionKeyRatchet {
     }
 
     pub fn evolve_tag(&mut self, current_tag: &[u8; 16], seq: u64) -> [u8; 16] {
-        self.packet_sequence_count += 1;
+        self.packet_sequence_count = self.packet_sequence_count.saturating_add(1);
         self.check_and_ratchet();
 
         let mut hasher = Sha256::new();
