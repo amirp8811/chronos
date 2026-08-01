@@ -1,4 +1,7 @@
 #![deny(unsafe_code)]
-//! Shared, parse-only components for the experimental relay daemon.
+//! Shared components for the experimental UDP relay daemon.
 
 pub mod config;
+pub mod metrics;
+pub mod queue;
+pub mod udp_relay;

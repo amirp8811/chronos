@@ -39,11 +39,17 @@ python3 scripts/static_audit.py
 cargo +nightly fuzz build
 ```
 
-For the local experiment harness:
+## Local experiment harness
+
+Run a real local three-hop UDP relay experiment backed by signed directory
+records:
 
 ```bash
-cargo run -p chronos-nettest
+cargo run -p chronos-nettest -- --scenario three-hop-local --out reports/three-hop-local.json
 ```
+
+The generated JSON records measured local delivery, replay, and latency results.
+This is a local prototype scenario, not a production anonymity network.
 
 ## Repository structure
 
