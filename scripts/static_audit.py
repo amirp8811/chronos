@@ -12,7 +12,7 @@ import sys
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-SCAN_DIRS = [ROOT / "crates", ROOT / "tools"]
+SCAN_DIRS = [ROOT / "crates", ROOT / "tools", ROOT / "fuzz" / "fuzz_targets"]
 UNSAFE_ALLOWED_CRATES = {"chronos-sys-dataplane"}
 # These core modules are intentionally compiled in `--no-default-features` mode.
 NO_STD_CORE_MODULES = {
@@ -111,8 +111,8 @@ def check_crate_roots() -> list[str]:
     return failures
 
 
-def check_fuzz_target_registration() -> list[str]:
-    """Require every target source to be a real registered cargo-fuzz binary."""
+def check_fuzz_targets_registered() -> list[str]:
+    """Require every fuzz source to be registered, hardened, and executable."""
     manifest_path = ROOT / "fuzz" / "Cargo.toml"
     target_dir = ROOT / "fuzz" / "fuzz_targets"
     if not manifest_path.exists() and not target_dir.exists():
@@ -125,15 +125,16 @@ def check_fuzz_target_registration() -> list[str]:
     except tomllib.TOMLDecodeError as error:
         return [f"fuzz/Cargo.toml: invalid TOML: {error}"]
 
-    bins = manifest.get("bin", [])
-    registered: set[Path] = set()
     failures: list[str] = []
-    for binary in bins:
-        path_value = binary.get("path")
+    registered_paths: set[Path] = set()
+    registered_names: set[str] = set()
+    for binary in manifest.get("bin", []):
         name = binary.get("name")
+        path_value = binary.get("path")
         if not isinstance(name, str) or not isinstance(path_value, str):
             failures.append("fuzz/Cargo.toml: every [[bin]] needs name and path")
             continue
+        registered_names.add(name)
         path = (manifest_path.parent / path_value).resolve()
         if target_dir not in path.parents or path.suffix != ".rs":
             failures.append(f"fuzz/Cargo.toml: {name} must point to fuzz_targets/*.rs")
@@ -141,14 +142,23 @@ def check_fuzz_target_registration() -> list[str]:
         if not path.exists():
             failures.append(f"fuzz/Cargo.toml: registered target missing: {path_value}")
             continue
-        registered.add(path)
+        if path.stem != name:
+            failures.append(f"fuzz/Cargo.toml: target name {name} must match {path.name}")
+        registered_paths.add(path)
+
+    actual_paths = {path.resolve() for path in target_dir.glob("*.rs")}
+    actual_names = {path.stem for path in actual_paths}
+    for path in sorted(actual_paths - registered_paths):
+        failures.append(f"{path.relative_to(ROOT)}: unregistered fuzz target source")
+    for name in sorted(registered_names - actual_names):
+        failures.append(f"fuzz/Cargo.toml: registered target missing source stem: {name}")
+
+    for path in sorted(actual_paths):
         source = path.read_text(errors="replace")
+        if "#![deny(unsafe_code)]" not in source:
+            failures.append(f"{path.relative_to(ROOT)}: fuzz target must declare #![deny(unsafe_code)]")
         if "fuzz_target!" not in source:
             failures.append(f"{path.relative_to(ROOT)}: registered target does not call fuzz_target!")
-
-    actual = {path.resolve() for path in target_dir.glob("*.rs")}
-    for path in sorted(actual - registered):
-        failures.append(f"{path.relative_to(ROOT)}: unregistered fuzz target source")
     return failures
 
 
@@ -161,7 +171,7 @@ def main() -> int:
                 files_scanned += 1
                 failures.extend(check_file(rust_file))
     failures.extend(check_crate_roots())
-    failures.extend(check_fuzz_target_registration())
+    failures.extend(check_fuzz_targets_registered())
 
     print(f"Static audit scanned {files_scanned} Rust files.")
     if failures:

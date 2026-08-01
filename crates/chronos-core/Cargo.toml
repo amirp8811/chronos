@@ -3,7 +3,7 @@ name = "chronos-core"
 version = "7.0.0"
 edition = "2024"
 authors = ["Clean-Slate Anonymous Networking Working Group"]
-description = "Core cryptographic and mathematical primitives for CHRONOS v7.0"
+description = "Experimental cryptographic and protocol primitives for CHRONOS"
 
 [features]
 default = ["std"]

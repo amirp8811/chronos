@@ -3,7 +3,7 @@ name = "chronos-dir"
 version = "7.0.0"
 edition = "2024"
 authors = ["Clean-Slate Anonymous Networking Working Group"]
-description = "Decentralized HotStuff BFT directory consensus mesh for CHRONOS v7.0"
+description = "Local signed relay-record directory prototype for CHRONOS experiments"
 
 [dependencies]
 tokio = { version = "1.37", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }

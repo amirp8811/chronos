@@ -3,7 +3,7 @@ name = "chronos-lite"
 version = "7.0.0"
 edition = "2024"
 authors = ["Clean-Slate Anonymous Networking Working Group"]
-description = "Residential ingress sentinel & DPF storage relay node for consumer ARM hardware"
+description = "Parse-only lite configuration and local prototype tests for CHRONOS"
 
 [dependencies]
 chronos-core = { path = "../chronos-core" }
