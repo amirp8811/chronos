@@ -217,6 +217,7 @@ impl PowAdmission {
             source.to_string().as_bytes(),
             &self.config.server_secret,
         )
+        .expect("PowAdmissionConfig validates challenge parameters")
     }
 
     fn verify_solution_at(
@@ -234,7 +235,8 @@ impl PowAdmission {
                 self.config.difficulty_zero_bits,
                 source.to_string().as_bytes(),
                 &self.config.server_secret,
-            );
+            )
+            .expect("PowAdmissionConfig validates challenge parameters");
             match self.replay_cache.verify_and_insert(&challenge, nonce) {
                 Ok(()) => return Ok(()),
                 Err(PowAdmissionError::Replay) => return Err(PowAdmissionError::Replay),

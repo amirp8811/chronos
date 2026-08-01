@@ -16,11 +16,14 @@
 #[cfg(not(feature = "std"))]
 use alloc::format;
 #[cfg(not(feature = "std"))]
-use alloc::string::String;
+use alloc::string::{String, ToString};
 #[cfg(not(feature = "std"))]
 use alloc::vec;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+
+/// Resource bound for one in-memory fountain encoding operation.
+pub const FOUNTAIN_MAX_REPAIR_SYMBOLS: usize = 4096;
 
 /// One encoded fountain symbol (systematic or repair).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,6 +104,11 @@ pub fn fountain_encode(
     if source_symbols.is_empty() {
         return Err("need at least one source symbol".into());
     }
+    if repair_count > FOUNTAIN_MAX_REPAIR_SYMBOLS {
+        return Err(format!(
+            "repair_count exceeds maximum {FOUNTAIN_MAX_REPAIR_SYMBOLS}: {repair_count}"
+        ));
+    }
     let k = source_symbols.len();
     let symbol_len = source_symbols[0].len();
     for (i, s) in source_symbols.iter().enumerate() {
@@ -138,8 +146,8 @@ pub fn fountain_encode(
 
 /// Split a contiguous payload into `k` equal-length symbols (zero-padded).
 pub fn split_payload(payload: &[u8], k: usize) -> Result<Vec<Vec<u8>>, String> {
-    if k == 0 {
-        return Err("k must be > 0".into());
+    if k == 0 || k > 256 {
+        return Err(format!("k out of supported range 1..=256, got {k}"));
     }
     let symbol_len = payload.len().div_ceil(k).max(1);
     let mut symbols = Vec::with_capacity(k);
@@ -158,17 +166,24 @@ pub fn split_payload(payload: &[u8], k: usize) -> Result<Vec<Vec<u8>>, String> {
 
 /// Join k symbols back into a payload of `total_len` bytes.
 pub fn join_payload(symbols: &[Vec<u8>], total_len: usize) -> Result<Vec<u8>, String> {
-    let mut out = Vec::with_capacity(total_len);
-    for s in symbols {
-        out.extend_from_slice(s);
-    }
-    if out.len() < total_len {
+    let available_len = symbols.iter().try_fold(0usize, |total, symbol| {
+        total
+            .checked_add(symbol.len())
+            .ok_or("joined symbol length overflow".to_string())
+    })?;
+    if available_len < total_len {
         return Err(format!(
-            "joined length {} < expected {total_len}",
-            out.len()
+            "joined length {available_len} < expected {total_len}"
         ));
     }
-    out.truncate(total_len);
+    let mut out = Vec::with_capacity(total_len);
+    for symbol in symbols {
+        if out.len() == total_len {
+            break;
+        }
+        let remaining = total_len - out.len();
+        out.extend_from_slice(&symbol[..symbol.len().min(remaining)]);
+    }
     Ok(out)
 }
 
@@ -414,6 +429,30 @@ mod tests {
         let n = progressive_recovery_count(&payload, 8, 16).unwrap();
         assert!(n >= 8);
         assert!(n <= 8 + 16);
+    }
+
+    #[test]
+    fn payload_helpers_reject_unbounded_or_unavailable_output() {
+        assert!(
+            split_payload(b"payload", 257)
+                .expect_err("k bound")
+                .contains("k out of supported range")
+        );
+        assert!(
+            join_payload(&[vec![1, 2]], usize::MAX)
+                .expect_err("unavailable output")
+                .contains("joined length")
+        );
+    }
+
+    #[test]
+    fn encoder_rejects_unbounded_repair_request() {
+        let source = split_payload(b"bounded", 2).expect("source");
+        assert!(
+            fountain_encode(&source, FOUNTAIN_MAX_REPAIR_SYMBOLS + 1)
+                .expect_err("repair bound")
+                .contains("repair_count")
+        );
     }
 
     #[test]
