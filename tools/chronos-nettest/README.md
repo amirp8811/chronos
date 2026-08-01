@@ -11,8 +11,13 @@ omitted, it writes the report to standard output.
 
 ### Three-hop local delivery
 
-Creates three signed relay records, starts three localhost UDP relays, builds an
-authenticated three-hop route, and verifies byte-for-byte receiver delivery.
+Creates three signed relay records, retrieves and pins each relay identity,
+derives one CHS7 route secret per relay, starts three localhost UDP relays,
+builds an authenticated three-hop route, and verifies byte-for-byte receiver
+delivery.
+
+Handshake messages are executed in-process for this local harness; route packet
+forwarding still uses real localhost UDP relays.
 
 ```bash
 cargo run -p chronos-nettest -- --scenario three-hop-local --out reports/three-hop-local.json

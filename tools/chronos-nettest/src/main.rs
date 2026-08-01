@@ -17,8 +17,9 @@ use chronos_core::anonymity_metrics::{
 use chronos_core::fountain::encode_payload_with_repair;
 use chronos_core::mix_policy::MixProfile;
 use chronos_core::{
-    NodeKeyMaterial, RELAY_PACKET_MAX_BYTES, RelayPacket, RelayPacketType, RouteCommand,
-    RouteHopSecret, RoutePacketBuilder,
+    HandshakePublicKeys, NodeKeyMaterial, RELAY_PACKET_MAX_BYTES, RelayPacket, RelayPacketType,
+    RouteCommand, RouteHopSecret, RoutePacketBuilder, client_begin_handshake_for_identity,
+    client_verify_server_confirm, server_accept_handshake,
 };
 use chronos_dir::api::{DirectoryApiConfig, DirectoryApiError, handle_command};
 use chronos_dir::signed_record::sign_record;
@@ -138,6 +139,11 @@ struct ThreeHopReport {
     latency_ms: f64,
     relay_bindings: Vec<String>,
     directory_records_inserted: usize,
+    handshakes_attempted: usize,
+    handshakes_completed: usize,
+    identity_pins_verified: usize,
+    route_secrets_derived: usize,
+    handshake_errors: Vec<String>,
     errors: Vec<String>,
 }
 
@@ -145,6 +151,15 @@ impl ScenarioStatus for ThreeHopReport {
     fn is_ok(&self) -> bool {
         self.ok
     }
+}
+
+#[derive(Debug, Default)]
+struct HandshakeProgress {
+    attempted: usize,
+    completed: usize,
+    identity_pins_verified: usize,
+    route_secrets_derived: usize,
+    errors: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -254,6 +269,11 @@ async fn run_three_hop_local(messages: usize) -> ThreeHopReport {
         latency_ms: 0.0,
         relay_bindings: Vec::new(),
         directory_records_inserted: 0,
+        handshakes_attempted: 0,
+        handshakes_completed: 0,
+        identity_pins_verified: 0,
+        route_secrets_derived: 0,
+        handshake_errors: Vec::new(),
         errors: Vec::new(),
     };
     if messages != 1 {
@@ -264,7 +284,8 @@ async fn run_three_hop_local(messages: usize) -> ThreeHopReport {
         return report;
     }
 
-    match execute_three_hop_local().await {
+    let mut handshakes = HandshakeProgress::default();
+    match execute_three_hop_local(&mut handshakes).await {
         Ok(execution) => {
             report.messages_sent = 1;
             report.messages_delivered = 1;
@@ -272,10 +293,23 @@ async fn run_three_hop_local(messages: usize) -> ThreeHopReport {
             report.latency_ms = execution.latency_ms;
             report.relay_bindings = execution.relay_bindings;
             report.directory_records_inserted = execution.directory_records_inserted;
-            report.ok = true;
+            report.ok = handshakes.completed == 3
+                && handshakes.identity_pins_verified == 3
+                && handshakes.route_secrets_derived == 3
+                && handshakes.errors.is_empty();
+            if !report.ok {
+                report
+                    .errors
+                    .push("handshake accounting was incomplete".to_string());
+            }
         }
         Err(error) => report.errors.push(error),
     }
+    report.handshakes_attempted = handshakes.attempted;
+    report.handshakes_completed = handshakes.completed;
+    report.identity_pins_verified = handshakes.identity_pins_verified;
+    report.route_secrets_derived = handshakes.route_secrets_derived;
+    report.handshake_errors = handshakes.errors;
     report
 }
 
@@ -286,7 +320,9 @@ struct ThreeHopExecution {
     directory_records_inserted: usize,
 }
 
-async fn execute_three_hop_local() -> Result<ThreeHopExecution, String> {
+async fn execute_three_hop_local(
+    handshakes: &mut HandshakeProgress,
+) -> Result<ThreeHopExecution, String> {
     let now_unix = unix_now();
     let receiver = UdpSocket::bind("127.0.0.1:0")
         .await
@@ -303,16 +339,11 @@ async fn execute_three_hop_local() -> Result<ThreeHopExecution, String> {
     let relay_3_keys =
         NodeKeyMaterial::generate().map_err(|error| format!("relay 3 keys: {error:?}"))?;
 
-    let hop_1 = RouteHopSecret([0x11; 32]);
-    let hop_2 = RouteHopSecret([0x22; 32]);
-    let hop_3 = RouteHopSecret([0x33; 32]);
-
     let mut relay_3_routes = StaticRouteTable::new();
     relay_3_routes.insert(STREAM_3, receiver_addr);
     let mut relay_3 = ChronosUdpRelay::bind("127.0.0.1:0", relay_3_routes)
         .await
         .map_err(display_relay_error("bind relay 3"))?;
-    relay_3.insert_route_secret(STREAM_3, hop_3.clone());
     let relay_3_addr = relay_3
         .local_addr()
         .map_err(display_relay_error("relay 3 address"))?;
@@ -333,7 +364,6 @@ async fn execute_three_hop_local() -> Result<ThreeHopExecution, String> {
     let mut relay_2 = ChronosUdpRelay::bind("127.0.0.1:0", relay_2_routes)
         .await
         .map_err(display_relay_error("bind relay 2"))?;
-    relay_2.insert_route_secret(STREAM_2, hop_2.clone());
     let relay_2_addr = relay_2
         .local_addr()
         .map_err(display_relay_error("relay 2 address"))?;
@@ -354,7 +384,6 @@ async fn execute_three_hop_local() -> Result<ThreeHopExecution, String> {
     let mut relay_1 = ChronosUdpRelay::bind("127.0.0.1:0", relay_1_routes)
         .await
         .map_err(display_relay_error("bind relay 1"))?;
-    relay_1.insert_route_secret(STREAM_1, hop_1.clone());
     let relay_1_addr = relay_1
         .local_addr()
         .map_err(display_relay_error("relay 1 address"))?;
@@ -373,6 +402,32 @@ async fn execute_three_hop_local() -> Result<ThreeHopExecution, String> {
             .get_signed(node_id, now_unix)
             .ok_or_else(|| format!("signed directory lookup failed for {node_id}"))?;
     }
+
+    let hop_1 = establish_route_secret_from_directory(
+        "relay-1",
+        &relay_1_keys,
+        &directory,
+        now_unix,
+        handshakes,
+    )?;
+    let hop_2 = establish_route_secret_from_directory(
+        "relay-2",
+        &relay_2_keys,
+        &directory,
+        now_unix,
+        handshakes,
+    )?;
+    let hop_3 = establish_route_secret_from_directory(
+        "relay-3",
+        &relay_3_keys,
+        &directory,
+        now_unix,
+        handshakes,
+    )?;
+
+    relay_1.insert_route_secret(STREAM_1, hop_1.clone());
+    relay_2.insert_route_secret(STREAM_2, hop_2.clone());
+    relay_3.insert_route_secret(STREAM_3, hop_3.clone());
 
     let route = RoutePacketBuilder::new(
         vec![hop_1, hop_2, hop_3],
@@ -744,6 +799,58 @@ fn signed_record_for(
     )
 }
 
+/// Executes CHS7 locally while pinning the relay identity retrieved from the
+/// signed directory record. Handshake packets are in-process for this harness;
+/// only the authenticated route forwarding is transported over localhost UDP.
+fn establish_route_secret_from_directory(
+    relay_id: &str,
+    relay_keys: &NodeKeyMaterial,
+    directory: &DirectoryStore,
+    now_unix: u64,
+    progress: &mut HandshakeProgress,
+) -> Result<RouteHopSecret, String> {
+    progress.attempted = progress.attempted.saturating_add(1);
+    let result = (|| -> Result<RouteHopSecret, String> {
+        let signed_record = directory
+            .get_signed(relay_id, now_unix)
+            .ok_or_else(|| format!("{relay_id}: signed directory record unavailable"))?;
+        let expected_identity = signed_record.verifying_key;
+        let server_hello = HandshakePublicKeys::from_node_keys(relay_keys)
+            .to_server_hello_packet()
+            .map_err(|error| format!("{relay_id}: build ServerHello: {error:?}"))?;
+
+        // A fresh locally generated client keyset supplies CSPRNG-backed X25519
+        // material without using a fixed test secret in scenario code.
+        let client_keys = NodeKeyMaterial::generate()
+            .map_err(|error| format!("{relay_id}: generate client handshake key: {error:?}"))?;
+        let (client_share, client_state) = client_begin_handshake_for_identity(
+            &server_hello,
+            &expected_identity,
+            &client_keys.x25519,
+        )
+        .map_err(|error| format!("{relay_id}: identity-pinned client handshake: {error:?}"))?;
+        progress.identity_pins_verified = progress.identity_pins_verified.saturating_add(1);
+
+        let (confirmation, server_state) =
+            server_accept_handshake(&server_hello, &client_share, relay_keys)
+                .map_err(|error| format!("{relay_id}: server accepts handshake: {error:?}"))?;
+        client_verify_server_confirm(&client_state, &confirmation)
+            .map_err(|error| format!("{relay_id}: client confirmation verification: {error:?}"))?;
+        progress.completed = progress.completed.saturating_add(1);
+
+        if client_state.route_secret != server_state.route_secret {
+            return Err(format!("{relay_id}: client/server route secret mismatch"));
+        }
+        progress.route_secrets_derived = progress.route_secrets_derived.saturating_add(1);
+        Ok(server_state.route_secret)
+    })();
+
+    if let Err(error) = &result {
+        progress.errors.push(error.clone());
+    }
+    result
+}
+
 fn directory_upsert_command(signed: &chronos_dir::signed_record::SignedRelayRecord) -> String {
     format!(
         "UPSERT_SIGNED {} {} {} {} {} {} {} {}",
@@ -877,15 +984,61 @@ mod tests {
     }
 
     #[test]
-    fn reports_serialize_to_json() {
-        let report = DirectoryNegativeReport {
-            scenario: "directory-negative",
+    fn reports_serialize_to_json_with_handshake_evidence() {
+        let report = ThreeHopReport {
+            scenario: "three-hop-local",
             ok: true,
-            cases: Vec::new(),
+            relays: 3,
+            messages_sent: 1,
+            messages_delivered: 1,
+            replays_attempted: 0,
+            replays_rejected: 0,
+            payload_bytes: 1,
+            packet_size_bytes: 1,
+            latency_ms: 0.0,
+            relay_bindings: Vec::new(),
+            directory_records_inserted: 3,
+            handshakes_attempted: 3,
+            handshakes_completed: 3,
+            identity_pins_verified: 3,
+            route_secrets_derived: 3,
+            handshake_errors: Vec::new(),
             errors: Vec::new(),
         };
         let json = serde_json::to_string(&report).expect("serialize");
-        assert!(json.contains("directory-negative"));
+        assert!(json.contains("three-hop-local"));
+        assert!(json.contains("handshakes_completed"));
+    }
+
+    #[test]
+    fn directory_identity_pin_rejects_a_different_relay_identity() {
+        let now_unix = unix_now();
+        let relay_a = NodeKeyMaterial::generate().expect("relay a keys");
+        let relay_b = NodeKeyMaterial::generate().expect("relay b keys");
+        let address: SocketAddr = "127.0.0.1:7000".parse().expect("address");
+        let mut directory = DirectoryStore::new();
+        let record = signed_record_for("relay-a", address, &relay_b, now_unix + 60);
+        directory
+            .upsert_signed(record, now_unix, DIRECTORY_LIFETIME_SECONDS)
+            .expect("signed record");
+
+        let mut progress = HandshakeProgress::default();
+        let error = match establish_route_secret_from_directory(
+            "relay-a",
+            &relay_a,
+            &directory,
+            now_unix,
+            &mut progress,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("directory pin for relay-b accepted relay-a ServerHello"),
+        };
+        assert!(error.contains("IdentityMismatch"));
+        assert_eq!(progress.attempted, 1);
+        assert_eq!(progress.identity_pins_verified, 0);
+        assert_eq!(progress.completed, 0);
+        assert_eq!(progress.route_secrets_derived, 0);
+        assert_eq!(progress.errors, vec![error]);
     }
 
     #[tokio::test]
@@ -909,5 +1062,10 @@ mod tests {
         assert_eq!(report.messages_delivered, 1);
         assert_eq!(report.relays, 3);
         assert_eq!(report.relay_bindings.len(), 3);
+        assert_eq!(report.handshakes_attempted, 3);
+        assert_eq!(report.handshakes_completed, 3);
+        assert_eq!(report.identity_pins_verified, 3);
+        assert_eq!(report.route_secrets_derived, 3);
+        assert!(report.handshake_errors.is_empty());
     }
 }

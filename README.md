@@ -41,15 +41,21 @@ cargo +nightly fuzz build
 
 ## Local experiment harness
 
-Run a real local three-hop UDP relay experiment backed by signed directory
-records:
+Run a real local signed-directory and identity-pinned handshake backed
+three-hop UDP relay experiment:
 
 ```bash
 cargo run -p chronos-nettest -- --scenario three-hop-local --out reports/three-hop-local.json
 ```
 
-The generated JSON records measured local delivery, replay, and latency results.
-This is a local prototype scenario, not a production anonymity network.
+The scenario derives each hop secret with the CHS7 identity-pinned handshake
+before installing it into the corresponding local relay. Handshake messages are
+executed in-process for this local harness; route packet forwarding still uses
+real localhost UDP relays.
+
+The generated JSON records measured local delivery, replay, latency, and
+handshake results. This is a local prototype scenario, not a production
+anonymity network.
 
 ## Repository structure
 
