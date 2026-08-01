@@ -12,7 +12,7 @@ impl Clock for StdClock {
         use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("Clock moved backwards")
+            .unwrap_or_default()
             .as_micros() as u64
     }
 }

@@ -26,9 +26,10 @@ pub fn shannon_entropy(counts: &[u64]) -> f64 {
     h
 }
 
-/// KL divergence KL(P || Q) for aligned histograms. Empty bins in Q use epsilon.
+/// KL divergence KL(P || Q) for histograms. Missing bins are treated as zero.
+/// Empty bins in Q use epsilon, so callers can compare independently sized
+/// histograms without triggering a panic.
 pub fn kl_divergence(p_counts: &[u64], q_counts: &[u64]) -> f64 {
-    assert_eq!(p_counts.len(), q_counts.len());
     let p_total: u64 = p_counts.iter().sum();
     let q_total: u64 = q_counts.iter().sum();
     if p_total == 0 || q_total == 0 {
@@ -38,7 +39,9 @@ pub fn kl_divergence(p_counts: &[u64], q_counts: &[u64]) -> f64 {
     let q_total_f = q_total as f64;
     let eps = 1e-12;
     let mut kl = 0.0;
-    for (&pc, &qc) in p_counts.iter().zip(q_counts.iter()) {
+    for index in 0..p_counts.len().max(q_counts.len()) {
+        let pc = p_counts.get(index).copied().unwrap_or(0);
+        let qc = q_counts.get(index).copied().unwrap_or(0);
         let p = (pc as f64 / p_total_f).max(eps);
         let q = (qc as f64 / q_total_f).max(eps);
         if pc > 0 {
@@ -55,13 +58,14 @@ pub fn interval_histogram(
     bin_width_us: u64,
     bins: usize,
 ) -> Vec<u64> {
-    let mut hist = vec![0u64; bins.max(1)];
+    let effective_bins = bins.max(1);
+    let mut hist = vec![0u64; effective_bins];
     if bin_width_us == 0 {
         return hist;
     }
     for w in observations.windows(2) {
         let dt = w[1].timestamp_micros.saturating_sub(w[0].timestamp_micros);
-        let idx = ((dt / bin_width_us) as usize).min(bins - 1);
+        let idx = ((dt / bin_width_us) as usize).min(effective_bins - 1);
         hist[idx] = hist[idx].saturating_add(1);
     }
     hist
@@ -73,10 +77,12 @@ pub fn length_histogram(
     max_len: usize,
     bins: usize,
 ) -> Vec<u64> {
-    let mut hist = vec![0u64; bins.max(1)];
+    let effective_bins = bins.max(1);
+    let mut hist = vec![0u64; effective_bins];
     let max_len = max_len.max(1);
     for o in observations {
-        let idx = (o.length_bytes.saturating_mul(bins) / (max_len + 1)).min(bins - 1);
+        let idx =
+            (o.length_bytes.saturating_mul(effective_bins) / (max_len + 1)).min(effective_bins - 1);
         hist[idx] = hist[idx].saturating_add(1);
     }
     hist
@@ -503,6 +509,23 @@ mod tests {
     fn kl_identical_is_zero() {
         let p = vec![5, 5, 5, 5];
         assert!(kl_divergence(&p, &p).abs() < 1e-9);
+    }
+
+    #[test]
+    fn metric_histograms_handle_zero_bins_and_mismatched_lengths() {
+        let observations = [
+            PacketObservation {
+                timestamp_micros: 0,
+                length_bytes: 10,
+            },
+            PacketObservation {
+                timestamp_micros: 5,
+                length_bytes: 20,
+            },
+        ];
+        assert_eq!(interval_histogram(&observations, 1, 0), vec![1]);
+        assert_eq!(length_histogram(&observations, 20, 0), vec![2]);
+        assert!(kl_divergence(&[1, 2], &[1]).is_finite());
     }
 
     #[test]
