@@ -27,6 +27,7 @@ pub struct CircuitSession {
 pub enum SessionError {
     NotFound(u64),
     Closed(u64),
+    IdentifierExhausted,
 }
 
 #[derive(Debug, Default)]
@@ -45,7 +46,11 @@ impl SessionManager {
         }
     }
 
-    pub fn open(&mut self, route_secret: RouteHopSecret) -> CircuitSession {
+    /// Opens a new session without allowing identifier wraparound.
+    pub fn open(&mut self, route_secret: RouteHopSecret) -> Result<CircuitSession, SessionError> {
+        if self.next_session_id == u64::MAX || self.next_stream_id == u64::MAX {
+            return Err(SessionError::IdentifierExhausted);
+        }
         let now = Instant::now();
         let session = CircuitSession {
             session_id: self.next_session_id,
@@ -59,7 +64,7 @@ impl SessionManager {
         self.next_session_id += 1;
         self.next_stream_id += 1;
         self.sessions.insert(session.session_id, session.clone());
-        session
+        Ok(session)
     }
 
     pub fn touch(&mut self, session_id: u64) -> Result<(), SessionError> {
@@ -134,9 +139,22 @@ impl SessionManager {
 mod tests {
     use super::*;
     #[test]
+    fn session_manager_refuses_identifier_wraparound() {
+        let mut manager = SessionManager {
+            sessions: HashMap::new(),
+            next_session_id: u64::MAX,
+            next_stream_id: 10_000,
+        };
+        assert!(matches!(
+            manager.open(RouteHopSecret([0; 32])),
+            Err(SessionError::IdentifierExhausted)
+        ));
+    }
+
+    #[test]
     fn session_manager_opens_rekeys_and_closes() {
         let mut sm = SessionManager::new();
-        let s = sm.open(RouteHopSecret([1; 32]));
+        let s = sm.open(RouteHopSecret([1; 32])).expect("open");
         assert_eq!(s.session_id, 1);
         sm.rekey(1, RouteHopSecret([2; 32])).unwrap();
         assert_eq!(sm.get(1).unwrap().rekey_counter, 1);

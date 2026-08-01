@@ -159,8 +159,19 @@ impl ReedSolomon16_10 {
 
         let chunk_len = surviving_shards[available_indices[0]]
             .as_ref()
-            .unwrap()
+            .expect("available index was derived from a present shard")
             .len();
+        for &index in &available_indices {
+            let shard = surviving_shards[index]
+                .as_ref()
+                .expect("available index was derived from a present shard");
+            if shard.len() != chunk_len {
+                return Err(format!(
+                    "Surviving shard {index} has length {}, expected {chunk_len}",
+                    shard.len()
+                ));
+            }
+        }
 
         // Check if we already have the first 10 data shards directly
         if available_indices == (0..self.k).collect::<Vec<_>>() {
@@ -252,6 +263,25 @@ mod tests {
         let refs: Vec<&[u8]> = data.iter().map(Vec::as_slice).collect();
         let encoded = rs.encode(&refs).expect("encode");
         assert_eq!(&encoded[..10], &data[..]);
+    }
+
+    #[test]
+    fn decoder_rejects_inconsistent_surviving_shard_lengths() {
+        let rs = ReedSolomon16_10::new();
+        let data: Vec<Vec<u8>> = (0..10).map(|index| vec![index as u8; 4]).collect();
+        let refs: Vec<&[u8]> = data.iter().map(Vec::as_slice).collect();
+        let mut surviving: Vec<Option<Vec<u8>>> = rs
+            .encode(&refs)
+            .expect("encode")
+            .into_iter()
+            .map(Some)
+            .collect();
+        surviving[3] = Some(vec![3; 5]);
+        assert!(
+            rs.decode(&surviving)
+                .expect_err("inconsistent survivor lengths must fail")
+                .contains("length")
+        );
     }
 
     #[test]
