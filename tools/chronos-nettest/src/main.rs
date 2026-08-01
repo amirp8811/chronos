@@ -566,10 +566,14 @@ async fn execute_replay_negative() -> Result<String, String> {
         .send_to(&replay_bytes, relay_addr)
         .await
         .map_err(|error| format!("send replay packet: {error}"))?;
-    let replay_error = relay
-        .relay_one()
-        .await
-        .expect_err("identical route packet must be rejected by route replay state");
+    let replay_error = match relay.relay_one().await {
+        Err(error) => error,
+        Ok(packet) => {
+            return Err(format!(
+                "identical route packet was unexpectedly accepted: {packet:?}"
+            ));
+        }
+    };
     if !matches!(
         replay_error,
         UdpRelayError::Route(chronos_core::RouteLayerError::Replay { .. })

@@ -1,27 +1,61 @@
 # chronos-nettest
 
-Local experiment harness for CHRONOS codec and mixing-policy models. Its output
-is useful for repeatable engineering experiments; it is not a network benchmark
-or an anonymity proof.
+Local experiment harness for CHRONOS protocol primitives and relay scenarios.
+Reports are generated from local code execution; they are not network benchmarks
+or anonymity proofs.
 
-## Modes
+## Signed-directory UDP scenarios
 
-Set `CHRONOS_NETTEST_MODE`:
+Each scenario accepts `--out <path>` to write a JSON report. When `--out` is
+omitted, it writes the report to standard output.
+
+### Three-hop local delivery
+
+Creates three signed relay records, starts three localhost UDP relays, builds an
+authenticated three-hop route, and verifies byte-for-byte receiver delivery.
+
+```bash
+cargo run -p chronos-nettest -- --scenario three-hop-local --out reports/three-hop-local.json
+```
+
+### Replay rejection
+
+Sends one valid route through a localhost relay, then resends the identical
+inner route. The report confirms replay rejection and absence of a second
+delivery.
+
+```bash
+cargo run -p chronos-nettest -- --scenario replay-negative --out reports/replay-negative.json
+```
+
+### Directory validation negatives
+
+Exercises the directory command path and verifies default rejection of unsigned,
+bad-signature, zero-key-material, and expired relay records.
+
+```bash
+cargo run -p chronos-nettest -- --scenario directory-negative --out reports/directory-negative.json
+```
+
+The scenario implementation currently supports `--messages 1`. Requests for a
+larger count return a report with `ok: false` and a nonzero exit status.
+
+## Legacy local models
+
+The existing local codec and mix-policy experiments remain available through
+`CHRONOS_NETTEST_MODE`:
 
 | Mode | Purpose |
 | --- | --- |
-| `smoke` | Small codec and adaptive-policy self-check. |
-| `mix-sweep` | Local profile and inter-arrival sweep producing timing and latency data. |
-| `fec-compare` | Local recovery-overhead experiment for repository codecs. |
-| `leak-audit` | Larger simulated timing, entropy, and latency experiment. |
-
-`CHRONOS_NETTEST_PACKETS` optionally selects the simulated packet count.
+| `smoke` | Codec and adaptive-policy self-check. |
+| `mix-sweep` | Local profile and inter-arrival sweep. |
+| `fec-compare` | Recovery-overhead experiment for repository codecs. |
+| `leak-audit` | Simulated timing, entropy, and latency experiment. |
 
 ```bash
 cargo run -p chronos-nettest
 CHRONOS_NETTEST_MODE=mix-sweep CHRONOS_NETTEST_PACKETS=128 cargo run -p chronos-nettest
-CHRONOS_NETTEST_MODE=leak-audit CHRONOS_NETTEST_PACKETS=2000 cargo run -p chronos-nettest
 ```
 
-Results apply to the selected in-process model and inputs only. They do not
-measure a deployed relay network or establish a privacy property.
+All scenarios are local prototype experiments. They do not establish production
+anonymity or deploy a relay network.
