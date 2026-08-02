@@ -24,7 +24,7 @@ use chronos_core::{
 use chronos_dir::api::{DirectoryApiConfig, DirectoryApiError, handle_command};
 use chronos_dir::signed_record::sign_record;
 use chronos_dir::store::{DirectoryStore, RelayRecord};
-use chronosd::udp_relay::{ChronosUdpRelay, StaticRouteTable, UdpRelayError};
+use chronosd::udp_relay::{ChronosUdpRelay, RelayOneOutcome, StaticRouteTable, UdpRelayError};
 use serde::Serialize;
 use tokio::net::UdpSocket;
 use tokio::time::{Duration, timeout};
@@ -137,6 +137,11 @@ struct ThreeHopReport {
     payload_bytes: usize,
     packet_size_bytes: usize,
     latency_ms: f64,
+    latency_min_ms: f64,
+    latency_p50_ms: f64,
+    latency_p95_ms: f64,
+    latency_p99_ms: f64,
+    latency_max_ms: f64,
     relay_bindings: Vec<String>,
     directory_records_inserted: usize,
     handshakes_attempted: usize,
@@ -264,9 +269,14 @@ async fn run_three_hop_local(messages: usize) -> ThreeHopReport {
         messages_delivered: 0,
         replays_attempted: 0,
         replays_rejected: 0,
-        payload_bytes: THREE_HOP_PAYLOAD.len(),
+        payload_bytes: 0,
         packet_size_bytes: 0,
         latency_ms: 0.0,
+        latency_min_ms: 0.0,
+        latency_p50_ms: 0.0,
+        latency_p95_ms: 0.0,
+        latency_p99_ms: 0.0,
+        latency_max_ms: 0.0,
         relay_bindings: Vec::new(),
         directory_records_inserted: 0,
         handshakes_attempted: 0,
@@ -276,21 +286,22 @@ async fn run_three_hop_local(messages: usize) -> ThreeHopReport {
         handshake_errors: Vec::new(),
         errors: Vec::new(),
     };
-    if messages != 1 {
-        report.errors.push(
-            "three-hop-local currently supports --messages 1; multiple route packets require a persistent sender session"
-                .to_string(),
-        );
-        return report;
-    }
 
     let mut handshakes = HandshakeProgress::default();
-    match execute_three_hop_local(&mut handshakes).await {
+    match execute_three_hop_local(messages, &mut handshakes).await {
         Ok(execution) => {
-            report.messages_sent = 1;
-            report.messages_delivered = 1;
+            let distribution = latency_distribution(&execution.latencies_ms)
+                .expect("successful scenario records at least one measured latency");
+            report.messages_sent = messages;
+            report.messages_delivered = messages;
+            report.payload_bytes = execution.payload_bytes;
             report.packet_size_bytes = execution.packet_size_bytes;
-            report.latency_ms = execution.latency_ms;
+            report.latency_ms = distribution.mean_ms;
+            report.latency_min_ms = distribution.min_ms;
+            report.latency_p50_ms = distribution.p50_ms;
+            report.latency_p95_ms = distribution.p95_ms;
+            report.latency_p99_ms = distribution.p99_ms;
+            report.latency_max_ms = distribution.max_ms;
             report.relay_bindings = execution.relay_bindings;
             report.directory_records_inserted = execution.directory_records_inserted;
             report.ok = handshakes.completed == 3
@@ -315,12 +326,51 @@ async fn run_three_hop_local(messages: usize) -> ThreeHopReport {
 
 struct ThreeHopExecution {
     packet_size_bytes: usize,
-    latency_ms: f64,
+    payload_bytes: usize,
+    latencies_ms: Vec<f64>,
     relay_bindings: Vec<String>,
     directory_records_inserted: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct LatencyDistribution {
+    mean_ms: f64,
+    min_ms: f64,
+    p50_ms: f64,
+    p95_ms: f64,
+    p99_ms: f64,
+    max_ms: f64,
+}
+
+fn latency_distribution(samples: &[f64]) -> Result<LatencyDistribution, String> {
+    if samples.is_empty() {
+        return Err("no delivery latency samples were recorded".to_string());
+    }
+    let mut sorted = samples.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let percentile = |percent: f64| {
+        let index = ((percent / 100.0) * (sorted.len() as f64 - 1.0)).round() as usize;
+        sorted[index.min(sorted.len() - 1)]
+    };
+    Ok(LatencyDistribution {
+        mean_ms: sorted.iter().sum::<f64>() / sorted.len() as f64,
+        min_ms: sorted[0],
+        p50_ms: percentile(50.0),
+        p95_ms: percentile(95.0),
+        p99_ms: percentile(99.0),
+        max_ms: sorted[sorted.len() - 1],
+    })
+}
+
+fn payload_for_message(index: usize) -> Vec<u8> {
+    if index == 0 {
+        return THREE_HOP_PAYLOAD.to_vec();
+    }
+    format!("chronos-nettest three-hop payload #{index}").into_bytes()
+}
+
 async fn execute_three_hop_local(
+    messages: usize,
     handshakes: &mut HandshakeProgress,
 ) -> Result<ThreeHopExecution, String> {
     let now_unix = unix_now();
@@ -395,14 +445,13 @@ async fn execute_three_hop_local(
         now_unix,
     )?;
 
-    // Retrieve all three authenticated records before route construction. The
-    // addresses used above therefore come from the signed directory store.
     for node_id in ["relay-1", "relay-2", "relay-3"] {
         directory
             .get_signed(node_id, now_unix)
             .ok_or_else(|| format!("signed directory lookup failed for {node_id}"))?;
     }
 
+    // This persistent local circuit derives and installs each route secret once.
     let hop_1 = establish_route_secret_from_directory(
         "relay-1",
         &relay_1_keys,
@@ -424,69 +473,84 @@ async fn execute_three_hop_local(
         now_unix,
         handshakes,
     )?;
-
     relay_1.insert_route_secret(STREAM_1, hop_1.clone());
     relay_2.insert_route_secret(STREAM_2, hop_2.clone());
     relay_3.insert_route_secret(STREAM_3, hop_3.clone());
 
-    let route = RoutePacketBuilder::new(
+    let route_builder = RoutePacketBuilder::new(
         vec![hop_1, hop_2, hop_3],
         vec![
             RouteCommand::forward(STREAM_2),
             RouteCommand::forward(STREAM_3),
             RouteCommand::deliver_local(),
         ],
-    )
-    .build(THREE_HOP_PAYLOAD)
-    .map_err(|error| format!("build route: {error:?}"))?;
-    let relay_packet = RelayPacket::route(STREAM_1, ROUTE_SEQUENCE, &route)
-        .map_err(|error| format!("encode relay route: {error:?}"))?;
-    let packet_bytes = relay_packet
-        .encode()
-        .map_err(|error| format!("serialize relay route: {error:?}"))?;
+    );
+
+    let relay_3_task =
+        tokio::spawn(async move { process_route_batch(relay_3, messages, "relay-3").await });
+    let relay_2_task =
+        tokio::spawn(async move { process_route_batch(relay_2, messages, "relay-2").await });
+    let relay_1_task =
+        tokio::spawn(async move { process_route_batch(relay_1, messages, "relay-1").await });
 
     let sender = UdpSocket::bind("127.0.0.1:0")
         .await
         .map_err(|error| format!("bind sender: {error}"))?;
-    let relay_3_task = tokio::spawn(async move { relay_3.relay_one().await });
-    let relay_2_task = tokio::spawn(async move { relay_2.relay_one().await });
-    let relay_1_task = tokio::spawn(async move { relay_1.relay_one().await });
+    let mut latencies_ms = Vec::with_capacity(messages);
+    let mut payload_bytes = 0usize;
+    let mut packet_size_bytes = 0usize;
 
-    let started = Instant::now();
-    sender
-        .send_to(&packet_bytes, relay_1_addr)
-        .await
-        .map_err(|error| format!("send route to relay 1: {error}"))?;
+    for message_index in 0..messages {
+        let payload = payload_for_message(message_index);
+        let route = route_builder
+            .build(&payload)
+            .map_err(|error| format!("build route {message_index}: {error:?}"))?;
+        let relay_packet =
+            RelayPacket::route(STREAM_1, ROUTE_SEQUENCE + message_index as u64, &route)
+                .map_err(|error| format!("encode relay route {message_index}: {error:?}"))?;
+        let packet_bytes = relay_packet
+            .encode()
+            .map_err(|error| format!("serialize relay route {message_index}: {error:?}"))?;
+        payload_bytes = payload_bytes.saturating_add(payload.len());
+        packet_size_bytes = packet_size_bytes.max(packet_bytes.len());
 
-    let mut receiver_buffer = [0u8; RELAY_PACKET_MAX_BYTES];
-    let (received_len, _) = timeout(SCENARIO_TIMEOUT, receiver.recv_from(&mut receiver_buffer))
-        .await
-        .map_err(|_| "timed out waiting for receiver delivery".to_string())?
-        .map_err(|error| format!("receive delivered payload: {error}"))?;
-    let delivered = RelayPacket::decode(&receiver_buffer[..received_len])
-        .map_err(|error| format!("decode delivered packet: {error:?}"))?;
-    if delivered.packet_type != RelayPacketType::Data {
-        return Err(format!(
-            "receiver got {:?}, expected data",
-            delivered.packet_type
-        ));
-    }
-    if delivered.payload != THREE_HOP_PAYLOAD {
-        return Err("receiver payload did not match the sent bytes".to_string());
-    }
+        let started = Instant::now();
+        sender
+            .send_to(&packet_bytes, relay_1_addr)
+            .await
+            .map_err(|error| format!("send route {message_index} to relay 1: {error}"))?;
 
-    let mut ack_buffer = [0u8; RELAY_PACKET_MAX_BYTES];
-    let (ack_len, _) = timeout(SCENARIO_TIMEOUT, sender.recv_from(&mut ack_buffer))
-        .await
-        .map_err(|_| "timed out waiting for sender acknowledgement".to_string())?
-        .map_err(|error| format!("receive sender acknowledgement: {error}"))?;
-    let acknowledgement = RelayPacket::decode(&ack_buffer[..ack_len])
-        .map_err(|error| format!("decode sender acknowledgement: {error:?}"))?;
-    if acknowledgement.packet_type != RelayPacketType::Ack
-        || acknowledgement.stream_id != STREAM_1
-        || acknowledgement.sequence != ROUTE_SEQUENCE
-    {
-        return Err("sender did not receive the expected relay acknowledgement".to_string());
+        let mut receiver_buffer = [0u8; RELAY_PACKET_MAX_BYTES];
+        let (received_len, _) = timeout(SCENARIO_TIMEOUT, receiver.recv_from(&mut receiver_buffer))
+            .await
+            .map_err(|_| format!("timed out waiting for delivery of message {message_index}"))?
+            .map_err(|error| format!("receive delivered message {message_index}: {error}"))?;
+        let delivered = RelayPacket::decode(&receiver_buffer[..received_len])
+            .map_err(|error| format!("decode delivered message {message_index}: {error:?}"))?;
+        if delivered.packet_type != RelayPacketType::Data || delivered.payload != payload {
+            return Err(format!(
+                "message {message_index} was not delivered unchanged"
+            ));
+        }
+        latencies_ms.push(started.elapsed().as_secs_f64() * 1_000.0);
+
+        let mut ack_buffer = [0u8; RELAY_PACKET_MAX_BYTES];
+        let (ack_len, _) = timeout(SCENARIO_TIMEOUT, sender.recv_from(&mut ack_buffer))
+            .await
+            .map_err(|_| {
+                format!("timed out waiting for acknowledgement of message {message_index}")
+            })?
+            .map_err(|error| format!("receive acknowledgement {message_index}: {error}"))?;
+        let acknowledgement = RelayPacket::decode(&ack_buffer[..ack_len])
+            .map_err(|error| format!("decode acknowledgement {message_index}: {error:?}"))?;
+        if acknowledgement.packet_type != RelayPacketType::Ack
+            || acknowledgement.stream_id != STREAM_1
+            || acknowledgement.sequence != ROUTE_SEQUENCE + message_index as u64
+        {
+            return Err(format!(
+                "message {message_index} acknowledgement was invalid"
+            ));
+        }
     }
 
     for (name, task) in [
@@ -494,16 +558,16 @@ async fn execute_three_hop_local(
         ("relay-2", relay_2_task),
         ("relay-3", relay_3_task),
     ] {
-        let result = timeout(SCENARIO_TIMEOUT, task)
+        timeout(SCENARIO_TIMEOUT, task)
             .await
             .map_err(|_| format!("{name} did not finish"))?
-            .map_err(|error| format!("{name} task join: {error}"))?;
-        result.map_err(|error| format!("{name} processing failed: {error:?}"))?;
+            .map_err(|error| format!("{name} task join: {error}"))??;
     }
 
     Ok(ThreeHopExecution {
-        packet_size_bytes: packet_bytes.len(),
-        latency_ms: started.elapsed().as_secs_f64() * 1_000.0,
+        packet_size_bytes,
+        payload_bytes,
+        latencies_ms,
         relay_bindings: vec![
             relay_1_addr.to_string(),
             relay_2_addr.to_string(),
@@ -511,6 +575,25 @@ async fn execute_three_hop_local(
         ],
         directory_records_inserted: directory.len(),
     })
+}
+
+async fn process_route_batch(
+    mut relay: ChronosUdpRelay,
+    messages: usize,
+    relay_name: &'static str,
+) -> Result<(), String> {
+    let mut processed_routes = 0usize;
+    while processed_routes < messages {
+        match relay
+            .relay_one_with_outcome()
+            .await
+            .map_err(|error| format!("{relay_name} processing failed: {error:?}"))?
+        {
+            RelayOneOutcome::Processed(_) => processed_routes = processed_routes.saturating_add(1),
+            RelayOneOutcome::IgnoredAck(_) => {}
+        }
+    }
+    Ok(())
 }
 
 async fn run_replay_negative(messages: usize) -> ReplayReport {
@@ -996,6 +1079,11 @@ mod tests {
             payload_bytes: 1,
             packet_size_bytes: 1,
             latency_ms: 0.0,
+            latency_min_ms: 0.0,
+            latency_p50_ms: 0.0,
+            latency_p95_ms: 0.0,
+            latency_p99_ms: 0.0,
+            latency_max_ms: 0.0,
             relay_bindings: Vec::new(),
             directory_records_inserted: 3,
             handshakes_attempted: 3,
@@ -1056,16 +1144,23 @@ mod tests {
 
     #[tokio::test]
     async fn three_hop_scenario_delivers_through_real_udp_relays() {
-        let report = run_three_hop_local(1).await;
+        let report = run_three_hop_local(3).await;
         assert!(report.ok);
         assert_eq!(report.directory_records_inserted, 3);
-        assert_eq!(report.messages_delivered, 1);
+        assert_eq!(report.messages_sent, 3);
+        assert_eq!(report.messages_delivered, 3);
         assert_eq!(report.relays, 3);
         assert_eq!(report.relay_bindings.len(), 3);
+        // The circuit is persistent: three relay handshakes establish the
+        // three route secrets once, even when it forwards multiple packets.
         assert_eq!(report.handshakes_attempted, 3);
         assert_eq!(report.handshakes_completed, 3);
         assert_eq!(report.identity_pins_verified, 3);
         assert_eq!(report.route_secrets_derived, 3);
         assert!(report.handshake_errors.is_empty());
+        assert!(report.latency_min_ms <= report.latency_p50_ms);
+        assert!(report.latency_p50_ms <= report.latency_p95_ms);
+        assert!(report.latency_p95_ms <= report.latency_p99_ms);
+        assert!(report.latency_p99_ms <= report.latency_max_ms);
     }
 }

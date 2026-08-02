@@ -53,9 +53,10 @@ before installing it into the corresponding local relay. Handshake messages are
 executed in-process for this local harness; route packet forwarding still uses
 real localhost UDP relays.
 
-The generated JSON records measured local delivery, replay, latency, and
-handshake results. This is a local prototype scenario, not a production
-anonymity network.
+The generated JSON records measured local delivery, replay, latency distribution,
+and handshake results. Pass `--messages N` to forward N packets through the same
+persistent three-hop circuit. This is a local prototype scenario, not a
+production anonymity network.
 
 ## Repository structure
 

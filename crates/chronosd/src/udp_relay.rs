@@ -271,6 +271,17 @@ pub struct UdpRelayMetrics {
     pub data_packets_delivered: u64,
 }
 
+/// Result of processing one received datagram.
+///
+/// Downstream acknowledgements are valid relay transport traffic. They are
+/// surfaced distinctly so long-running local circuits can discard them without
+/// treating them as a malformed application packet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RelayOneOutcome {
+    Processed(RelayPacket),
+    IgnoredAck(RelayPacket),
+}
+
 pub struct ChronosUdpRelay {
     socket: UdpSocket,
     handler: RelayPacketHandler,
@@ -436,31 +447,46 @@ impl ChronosUdpRelay {
         }
     }
 
-    pub async fn relay_one(&mut self) -> Result<RelayPacket, UdpRelayError> {
+    /// Processes one datagram and preserves acknowledgement traffic as a
+    /// distinct non-error outcome for persistent relay circuits.
+    pub async fn relay_one_with_outcome(&mut self) -> Result<RelayOneOutcome, UdpRelayError> {
         let mut buf = [0u8; RELAY_PACKET_MAX_BYTES];
         let (len, src) = self.socket.recv_from(&mut buf).await?;
         self.increment_metrics(|m| m.packets_received = m.packets_received.saturating_add(1));
         if let Ok(handshake) = HandshakePacket::decode(&buf[..len]) {
-            return self.handle_handshake_packet(handshake, src).await;
+            return self
+                .handle_handshake_packet(handshake, src)
+                .await
+                .map(RelayOneOutcome::Processed);
         }
 
         let packet = RelayPacket::decode(&buf[..len]).map_err(UdpRelayError::Packet)?;
+        if packet.packet_type == chronos_core::RelayPacketType::Ack {
+            return Ok(RelayOneOutcome::IgnoredAck(packet));
+        }
         let decision = self
             .handler
             .process(packet)
             .map_err(UdpRelayError::Handler)?;
-
-        match decision {
+        let response = match decision {
             RelayDecision::ForwardShard { packet, ack } => {
-                self.forward_packet_and_ack(packet, ack, src).await
+                self.forward_packet_and_ack(packet, ack, src).await?
             }
             RelayDecision::ForwardRoute { packet, ack } => {
-                self.process_route_packet_and_ack(packet, ack, src).await
+                self.process_route_packet_and_ack(packet, ack, src).await?
             }
             RelayDecision::Respond(packet) => {
                 self.send_packet(&packet, src).await?;
-                Ok(packet)
+                packet
             }
+        };
+        Ok(RelayOneOutcome::Processed(response))
+    }
+
+    /// Compatibility wrapper for callers that only need the response packet.
+    pub async fn relay_one(&mut self) -> Result<RelayPacket, UdpRelayError> {
+        match self.relay_one_with_outcome().await? {
+            RelayOneOutcome::Processed(packet) | RelayOneOutcome::IgnoredAck(packet) => Ok(packet),
         }
     }
 
