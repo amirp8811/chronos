@@ -16,8 +16,8 @@ derives one CHS7 route secret per relay, starts three localhost UDP relays,
 builds an authenticated three-hop route, and verifies byte-for-byte receiver
 delivery.
 
-Handshake messages are executed in-process for this local harness; route packet
-forwarding still uses real localhost UDP relays.
+Both CHS7 handshake messages and route packet forwarding use real localhost UDP
+relay sockets in this local harness.
 
 ```bash
 cargo run -p chronos-nettest -- --scenario three-hop-local --messages 10 --out reports/three-hop-local.json

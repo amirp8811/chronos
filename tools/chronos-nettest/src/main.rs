@@ -17,9 +17,9 @@ use chronos_core::anonymity_metrics::{
 use chronos_core::fountain::encode_payload_with_repair;
 use chronos_core::mix_policy::MixProfile;
 use chronos_core::{
-    HandshakePublicKeys, NodeKeyMaterial, RELAY_PACKET_MAX_BYTES, RelayPacket, RelayPacketType,
-    RouteCommand, RouteHopSecret, RoutePacketBuilder, client_begin_handshake_for_identity,
-    client_verify_server_confirm, server_accept_handshake,
+    HandshakePacket, HandshakePacketType, NodeKeyMaterial, RELAY_PACKET_MAX_BYTES, RelayPacket,
+    RelayPacketType, RouteCommand, RouteHopSecret, RoutePacketBuilder,
+    client_begin_handshake_for_identity, client_verify_server_confirm,
 };
 use chronos_dir::api::{DirectoryApiConfig, DirectoryApiError, handle_command};
 use chronos_dir::signed_record::sign_record;
@@ -32,12 +32,11 @@ use tokio::net::UdpSocket;
 use tokio::time::{Duration, timeout};
 
 const STREAM_1: u64 = 10_001;
-const STREAM_2: u64 = 10_002;
-const STREAM_3: u64 = 10_003;
 const ROUTE_SEQUENCE: u64 = 1;
 const DIRECTORY_LIFETIME_SECONDS: u64 = 300;
 const SCENARIO_TIMEOUT: Duration = Duration::from_secs(2);
 const NO_SECOND_DELIVERY_TIMEOUT: Duration = Duration::from_millis(200);
+const HANDSHAKE_RECEIVE_BUFFER_BYTES: usize = 4096;
 const THREE_HOP_PAYLOAD: &[u8] = b"chronos-nettest three-hop payload";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -437,9 +436,9 @@ async fn execute_three_hop_local(
     let relay_3_keys =
         NodeKeyMaterial::generate().map_err(|error| format!("relay 3 keys: {error:?}"))?;
 
-    let mut relay_3_routes = StaticRouteTable::new();
-    relay_3_routes.insert(STREAM_3, receiver_addr);
-    let mut relay_3 = ChronosUdpRelay::bind("127.0.0.1:0", relay_3_routes)
+    // Bind all relays first so their signed directory records contain the
+    // actual addresses used below for handshake and route forwarding.
+    let mut relay_3 = ChronosUdpRelay::bind("127.0.0.1:0", StaticRouteTable::new())
         .await
         .map_err(display_relay_error("bind relay 3"))?;
     let relay_3_addr = relay_3
@@ -453,13 +452,7 @@ async fn execute_three_hop_local(
         now_unix,
     )?;
 
-    let relay_3_directory_addr = directory
-        .get("relay-3", now_unix)
-        .ok_or("directory lookup for relay-3 failed")?
-        .address;
-    let mut relay_2_routes = StaticRouteTable::new();
-    relay_2_routes.insert(STREAM_3, relay_3_directory_addr);
-    let mut relay_2 = ChronosUdpRelay::bind("127.0.0.1:0", relay_2_routes)
+    let mut relay_2 = ChronosUdpRelay::bind("127.0.0.1:0", StaticRouteTable::new())
         .await
         .map_err(display_relay_error("bind relay 2"))?;
     let relay_2_addr = relay_2
@@ -473,13 +466,7 @@ async fn execute_three_hop_local(
         now_unix,
     )?;
 
-    let relay_2_directory_addr = directory
-        .get("relay-2", now_unix)
-        .ok_or("directory lookup for relay-2 failed")?
-        .address;
-    let mut relay_1_routes = StaticRouteTable::new();
-    relay_1_routes.insert(STREAM_2, relay_2_directory_addr);
-    let mut relay_1 = ChronosUdpRelay::bind("127.0.0.1:0", relay_1_routes)
+    let mut relay_1 = ChronosUdpRelay::bind("127.0.0.1:0", StaticRouteTable::new())
         .await
         .map_err(display_relay_error("bind relay 1"))?;
     let relay_1_addr = relay_1
@@ -499,37 +486,60 @@ async fn execute_three_hop_local(
             .ok_or_else(|| format!("signed directory lookup failed for {node_id}"))?;
     }
 
-    // This persistent local circuit derives and installs each route secret once.
-    let hop_1 = establish_route_secret_from_directory(
-        "relay-1",
-        &relay_1_keys,
-        &directory,
-        now_unix,
-        handshakes,
-    )?;
-    let hop_2 = establish_route_secret_from_directory(
-        "relay-2",
-        &relay_2_keys,
-        &directory,
-        now_unix,
-        handshakes,
-    )?;
-    let hop_3 = establish_route_secret_from_directory(
+    // Each relay serves its stable identity over UDP. The client takes the
+    // expected identity only from the signed directory record and verifies CHS7
+    // confirmation before the route secret is used.
+    relay_3
+        .enable_handshake(relay_3_keys.clone())
+        .map_err(display_relay_error("enable relay 3 handshake"))?;
+    let handshake_3 = establish_networked_route_secret_from_directory(
         "relay-3",
-        &relay_3_keys,
+        relay_3_addr,
+        &mut relay_3,
         &directory,
         now_unix,
         handshakes,
-    )?;
-    relay_1.insert_route_secret(STREAM_1, hop_1.clone());
-    relay_2.insert_route_secret(STREAM_2, hop_2.clone());
-    relay_3.insert_route_secret(STREAM_3, hop_3.clone());
+    )
+    .await?;
+    relay_3.insert_static_route(handshake_3.stream_id, receiver_addr);
+
+    relay_2
+        .enable_handshake(relay_2_keys.clone())
+        .map_err(display_relay_error("enable relay 2 handshake"))?;
+    let handshake_2 = establish_networked_route_secret_from_directory(
+        "relay-2",
+        relay_2_addr,
+        &mut relay_2,
+        &directory,
+        now_unix,
+        handshakes,
+    )
+    .await?;
+    relay_2.insert_static_route(handshake_3.stream_id, relay_3_addr);
+
+    relay_1
+        .enable_handshake(relay_1_keys.clone())
+        .map_err(display_relay_error("enable relay 1 handshake"))?;
+    let handshake_1 = establish_networked_route_secret_from_directory(
+        "relay-1",
+        relay_1_addr,
+        &mut relay_1,
+        &directory,
+        now_unix,
+        handshakes,
+    )
+    .await?;
+    relay_1.insert_static_route(handshake_2.stream_id, relay_2_addr);
 
     let route_builder = RoutePacketBuilder::new(
-        vec![hop_1, hop_2, hop_3],
         vec![
-            RouteCommand::forward(STREAM_2),
-            RouteCommand::forward(STREAM_3),
+            handshake_1.route_secret,
+            handshake_2.route_secret,
+            handshake_3.route_secret,
+        ],
+        vec![
+            RouteCommand::forward(handshake_2.stream_id),
+            RouteCommand::forward(handshake_3.stream_id),
             RouteCommand::deliver_local(),
         ],
     );
@@ -553,9 +563,12 @@ async fn execute_three_hop_local(
         let route = route_builder
             .build(&payload)
             .map_err(|error| format!("build route {message_index}: {error:?}"))?;
-        let relay_packet =
-            RelayPacket::route(STREAM_1, ROUTE_SEQUENCE + message_index as u64, &route)
-                .map_err(|error| format!("encode relay route {message_index}: {error:?}"))?;
+        let relay_packet = RelayPacket::route(
+            handshake_1.stream_id,
+            ROUTE_SEQUENCE + message_index as u64,
+            &route,
+        )
+        .map_err(|error| format!("encode relay route {message_index}: {error:?}"))?;
         let packet_bytes = relay_packet
             .encode()
             .map_err(|error| format!("serialize relay route {message_index}: {error:?}"))?;
@@ -592,7 +605,7 @@ async fn execute_three_hop_local(
         let acknowledgement = RelayPacket::decode(&ack_buffer[..ack_len])
             .map_err(|error| format!("decode acknowledgement {message_index}: {error:?}"))?;
         if acknowledgement.packet_type != RelayPacketType::Ack
-            || acknowledgement.stream_id != STREAM_1
+            || acknowledgement.stream_id != handshake_1.stream_id
             || acknowledgement.sequence != ROUTE_SEQUENCE + message_index as u64
         {
             return Err(format!(
@@ -642,6 +655,11 @@ async fn execute_three_hop_local(
 struct RelayBatchResult {
     metrics: UdpRelayMetrics,
     ignored_ack_datagrams: usize,
+}
+
+struct NetworkHandshake {
+    stream_id: u64,
+    route_secret: RouteHopSecret,
 }
 
 async fn await_relay_batch(
@@ -965,28 +983,64 @@ fn signed_record_for(
     )
 }
 
-/// Executes CHS7 locally while pinning the relay identity retrieved from the
-/// signed directory record. Handshake packets are in-process for this harness;
-/// only the authenticated route forwarding is transported over localhost UDP.
-fn establish_route_secret_from_directory(
+/// Executes the full CHS7 exchange over the relay's localhost UDP socket while
+/// pinning the expected stable identity retrieved from the signed directory.
+async fn establish_networked_route_secret_from_directory(
     relay_id: &str,
-    relay_keys: &NodeKeyMaterial,
+    relay_addr: SocketAddr,
+    relay: &mut ChronosUdpRelay,
     directory: &DirectoryStore,
     now_unix: u64,
     progress: &mut HandshakeProgress,
-) -> Result<RouteHopSecret, String> {
+) -> Result<NetworkHandshake, String> {
     progress.attempted = progress.attempted.saturating_add(1);
-    let result = (|| -> Result<RouteHopSecret, String> {
+    let result = async {
         let signed_record = directory
             .get_signed(relay_id, now_unix)
             .ok_or_else(|| format!("{relay_id}: signed directory record unavailable"))?;
         let expected_identity = signed_record.verifying_key;
-        let server_hello = HandshakePublicKeys::from_node_keys(relay_keys)
-            .to_server_hello_packet()
-            .map_err(|error| format!("{relay_id}: build ServerHello: {error:?}"))?;
+        let client = UdpSocket::bind("127.0.0.1:0")
+            .await
+            .map_err(|error| format!("{relay_id}: bind handshake client: {error}"))?;
 
-        // A fresh locally generated client keyset supplies CSPRNG-backed X25519
-        // material without using a fixed test secret in scenario code.
+        let hello_request = HandshakePacket::new(HandshakePacketType::ServerHello, Vec::new())
+            .map_err(|error| format!("{relay_id}: encode ServerHello request: {error:?}"))?;
+        client
+            .send_to(
+                &hello_request.encode().map_err(|error| {
+                    format!("{relay_id}: serialize ServerHello request: {error:?}")
+                })?,
+                relay_addr,
+            )
+            .await
+            .map_err(|error| format!("{relay_id}: send ServerHello request: {error}"))?;
+        match relay
+            .relay_one_with_outcome()
+            .await
+            .map_err(|error| format!("{relay_id}: process ServerHello request: {error:?}"))?
+        {
+            RelayOneOutcome::Processed(_) => {}
+            RelayOneOutcome::IgnoredAck(_) => {
+                return Err(format!(
+                    "{relay_id}: ignored ACK instead of ServerHello request"
+                ));
+            }
+        }
+
+        let mut receive_buffer = [0u8; HANDSHAKE_RECEIVE_BUFFER_BYTES];
+        let (hello_len, hello_source) =
+            timeout(SCENARIO_TIMEOUT, client.recv_from(&mut receive_buffer))
+                .await
+                .map_err(|_| format!("{relay_id}: timed out waiting for ServerHello"))?
+                .map_err(|error| format!("{relay_id}: receive ServerHello: {error}"))?;
+        if hello_source != relay_addr {
+            return Err(format!(
+                "{relay_id}: ServerHello source did not match directory address"
+            ));
+        }
+        let server_hello = HandshakePacket::decode(&receive_buffer[..hello_len])
+            .map_err(|error| format!("{relay_id}: decode ServerHello: {error:?}"))?;
+
         let client_keys = NodeKeyMaterial::generate()
             .map_err(|error| format!("{relay_id}: generate client handshake key: {error:?}"))?;
         let (client_share, client_state) = client_begin_handshake_for_identity(
@@ -997,19 +1051,69 @@ fn establish_route_secret_from_directory(
         .map_err(|error| format!("{relay_id}: identity-pinned client handshake: {error:?}"))?;
         progress.identity_pins_verified = progress.identity_pins_verified.saturating_add(1);
 
-        let (confirmation, server_state) =
-            server_accept_handshake(&server_hello, &client_share, relay_keys)
-                .map_err(|error| format!("{relay_id}: server accepts handshake: {error:?}"))?;
+        client
+            .send_to(
+                &client_share
+                    .encode()
+                    .map_err(|error| format!("{relay_id}: serialize ClientKeyShare: {error:?}"))?,
+                relay_addr,
+            )
+            .await
+            .map_err(|error| format!("{relay_id}: send ClientKeyShare: {error}"))?;
+        match relay
+            .relay_one_with_outcome()
+            .await
+            .map_err(|error| format!("{relay_id}: process ClientKeyShare: {error:?}"))?
+        {
+            RelayOneOutcome::Processed(_) => {}
+            RelayOneOutcome::IgnoredAck(_) => {
+                return Err(format!("{relay_id}: ignored ACK instead of ClientKeyShare"));
+            }
+        }
+
+        let mut confirmation = None;
+        let mut stream_id = None;
+        while confirmation.is_none() || stream_id.is_none() {
+            let (len, source) = timeout(SCENARIO_TIMEOUT, client.recv_from(&mut receive_buffer))
+                .await
+                .map_err(|_| {
+                    format!("{relay_id}: timed out waiting for confirmation and stream ACK")
+                })?
+                .map_err(|error| format!("{relay_id}: receive handshake response: {error}"))?;
+            if source != relay_addr {
+                return Err(format!(
+                    "{relay_id}: handshake response source did not match directory address"
+                ));
+            }
+            if let Ok(packet) = HandshakePacket::decode(&receive_buffer[..len]) {
+                if packet.packet_type != HandshakePacketType::ServerKeyConfirm {
+                    return Err(format!("{relay_id}: unexpected handshake response type"));
+                }
+                confirmation = Some(packet);
+                continue;
+            }
+            let packet = RelayPacket::decode(&receive_buffer[..len])
+                .map_err(|error| format!("{relay_id}: decode stream ACK: {error:?}"))?;
+            if packet.packet_type != RelayPacketType::Ack || packet.sequence != 0 {
+                return Err(format!("{relay_id}: expected handshake stream ACK"));
+            }
+            stream_id = Some(packet.stream_id);
+        }
+
+        let confirmation =
+            confirmation.ok_or_else(|| format!("{relay_id}: missing ServerKeyConfirm"))?;
+        let stream_id =
+            stream_id.ok_or_else(|| format!("{relay_id}: missing handshake stream ACK"))?;
         client_verify_server_confirm(&client_state, &confirmation)
             .map_err(|error| format!("{relay_id}: client confirmation verification: {error:?}"))?;
         progress.completed = progress.completed.saturating_add(1);
-
-        if client_state.route_secret != server_state.route_secret {
-            return Err(format!("{relay_id}: client/server route secret mismatch"));
-        }
         progress.route_secrets_derived = progress.route_secrets_derived.saturating_add(1);
-        Ok(server_state.route_secret)
-    })();
+        Ok(NetworkHandshake {
+            stream_id,
+            route_secret: client_state.route_secret,
+        })
+    }
+    .await;
 
     if let Err(error) = &result {
         progress.errors.push(error.clone());
@@ -1183,12 +1287,18 @@ mod tests {
         assert!(json.contains("handshakes_completed"));
     }
 
-    #[test]
-    fn directory_identity_pin_rejects_a_different_relay_identity() {
+    #[tokio::test]
+    async fn directory_identity_pin_rejects_a_different_relay_identity() {
         let now_unix = unix_now();
         let relay_a = NodeKeyMaterial::generate().expect("relay a keys");
         let relay_b = NodeKeyMaterial::generate().expect("relay b keys");
-        let address: SocketAddr = "127.0.0.1:7000".parse().expect("address");
+        let mut relay = ChronosUdpRelay::bind("127.0.0.1:0", StaticRouteTable::new())
+            .await
+            .expect("relay bind");
+        relay
+            .enable_handshake(relay_a.clone())
+            .expect("enable handshake");
+        let address = relay.local_addr().expect("address");
         let mut directory = DirectoryStore::new();
         let record = signed_record_for("relay-a", address, &relay_b, now_unix + 60);
         directory
@@ -1196,13 +1306,16 @@ mod tests {
             .expect("signed record");
 
         let mut progress = HandshakeProgress::default();
-        let error = match establish_route_secret_from_directory(
+        let error = match establish_networked_route_secret_from_directory(
             "relay-a",
-            &relay_a,
+            address,
+            &mut relay,
             &directory,
             now_unix,
             &mut progress,
-        ) {
+        )
+        .await
+        {
             Err(error) => error,
             Ok(_) => panic!("directory pin for relay-b accepted relay-a ServerHello"),
         };
