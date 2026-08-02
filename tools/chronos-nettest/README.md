@@ -20,7 +20,7 @@ Handshake messages are executed in-process for this local harness; route packet
 forwarding still uses real localhost UDP relays.
 
 ```bash
-cargo run -p chronos-nettest -- --scenario three-hop-local --out reports/three-hop-local.json
+cargo run -p chronos-nettest -- --scenario three-hop-local --messages 10 --out reports/three-hop-local.json
 ```
 
 ### Replay rejection
@@ -42,8 +42,10 @@ bad-signature, zero-key-material, and expired relay records.
 cargo run -p chronos-nettest -- --scenario directory-negative --out reports/directory-negative.json
 ```
 
-The scenario implementation currently supports `--messages 1`. Requests for a
-larger count return a report with `ok: false` and a nonzero exit status.
+`--messages N` sends N authenticated route packets through the same persistent
+three-hop circuit. The report includes mean, minimum, p50, p95, p99, and maximum
+measured local delivery latency across those messages. The three CHS7 handshakes
+and their derived route secrets are established once per scenario run.
 
 ## Legacy local models
 
