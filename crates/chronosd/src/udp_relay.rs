@@ -369,6 +369,12 @@ impl ChronosUdpRelay {
         self.socket.local_addr().map_err(UdpRelayError::from)
     }
 
+    /// Adds or replaces a local static forwarding route after a handshake has
+    /// assigned the downstream relay's stream identifier.
+    pub fn insert_static_route(&mut self, stream_id: u64, destination: SocketAddr) {
+        self.routes.insert(stream_id, destination);
+    }
+
     pub fn enable_handshake(&mut self, node_keys: NodeKeyMaterial) -> Result<(), UdpRelayError> {
         let server_hello = HandshakePublicKeys::from_node_keys(&node_keys)
             .to_server_hello_packet()
@@ -559,7 +565,12 @@ impl ChronosUdpRelay {
                     .encode()
                     .map_err(|e| UdpRelayError::Handshake(format!("encode confirm: {e:?}")))?;
                 self.socket.send_to(&bytes, source).await?;
-                RelayPacket::ack(stream_id, 0).map_err(UdpRelayError::Packet)
+                let acknowledgement =
+                    RelayPacket::ack(stream_id, 0).map_err(UdpRelayError::Packet)?;
+                let acknowledgement_bytes =
+                    acknowledgement.encode().map_err(UdpRelayError::Packet)?;
+                self.socket.send_to(&acknowledgement_bytes, source).await?;
+                Ok(acknowledgement)
             }
             other => Err(UdpRelayError::Handshake(format!(
                 "unsupported handshake packet: {other:?}"

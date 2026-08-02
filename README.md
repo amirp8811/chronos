@@ -49,9 +49,9 @@ cargo run -p chronos-nettest -- --scenario three-hop-local --out reports/three-h
 ```
 
 The scenario derives each hop secret with the CHS7 identity-pinned handshake
-before installing it into the corresponding local relay. Handshake messages are
-executed in-process for this local harness; route packet forwarding still uses
-real localhost UDP relays.
+before installing it into the corresponding local relay. Both handshake messages
+and route packet forwarding use real localhost UDP relay sockets in this local
+harness.
 
 The generated JSON records measured local delivery, replay, latency distribution,
 and handshake results. Pass `--messages N` to forward N packets through the same
