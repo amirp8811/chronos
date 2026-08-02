@@ -44,8 +44,9 @@ cargo run -p chronos-nettest -- --scenario directory-negative --out reports/dire
 
 `--messages N` sends N authenticated route packets through the same persistent
 three-hop circuit. The report includes mean, minimum, p50, p95, p99, and maximum
-measured local delivery latency across those messages. The three CHS7 handshakes
-and their derived route secrets are established once per scenario run.
+measured local delivery latency across those messages. It also reports delivery
+ratio and actual per-relay processing counters. The three CHS7 handshakes and
+their derived route secrets are established once per scenario run.
 
 ## Legacy local models
 

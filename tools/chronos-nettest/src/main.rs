@@ -24,7 +24,9 @@ use chronos_core::{
 use chronos_dir::api::{DirectoryApiConfig, DirectoryApiError, handle_command};
 use chronos_dir::signed_record::sign_record;
 use chronos_dir::store::{DirectoryStore, RelayRecord};
-use chronosd::udp_relay::{ChronosUdpRelay, RelayOneOutcome, StaticRouteTable, UdpRelayError};
+use chronosd::udp_relay::{
+    ChronosUdpRelay, RelayOneOutcome, StaticRouteTable, UdpRelayError, UdpRelayMetrics,
+};
 use serde::Serialize;
 use tokio::net::UdpSocket;
 use tokio::time::{Duration, timeout};
@@ -142,7 +144,9 @@ struct ThreeHopReport {
     latency_p95_ms: f64,
     latency_p99_ms: f64,
     latency_max_ms: f64,
+    delivery_ratio: f64,
     relay_bindings: Vec<String>,
+    per_relay_metrics: Vec<RelayMetricsReport>,
     directory_records_inserted: usize,
     handshakes_attempted: usize,
     handshakes_completed: usize,
@@ -155,6 +159,41 @@ struct ThreeHopReport {
 impl ScenarioStatus for ThreeHopReport {
     fn is_ok(&self) -> bool {
         self.ok
+    }
+}
+
+/// Measured counters from one relay after processing the persistent batch.
+#[derive(Debug, Serialize)]
+struct RelayMetricsReport {
+    relay_id: &'static str,
+    binding: String,
+    packets_received: u64,
+    packets_forwarded: u64,
+    acks_sent: u64,
+    errors_sent: u64,
+    route_packets_peeled: u64,
+    data_packets_delivered: u64,
+    ignored_ack_datagrams: usize,
+}
+
+impl RelayMetricsReport {
+    fn from_snapshot(
+        relay_id: &'static str,
+        binding: String,
+        metrics: UdpRelayMetrics,
+        ignored_ack_datagrams: usize,
+    ) -> Self {
+        Self {
+            relay_id,
+            binding,
+            packets_received: metrics.packets_received,
+            packets_forwarded: metrics.packets_forwarded,
+            acks_sent: metrics.acks_sent,
+            errors_sent: metrics.errors_sent,
+            route_packets_peeled: metrics.route_packets_peeled,
+            data_packets_delivered: metrics.data_packets_delivered,
+            ignored_ack_datagrams,
+        }
     }
 }
 
@@ -277,7 +316,9 @@ async fn run_three_hop_local(messages: usize) -> ThreeHopReport {
         latency_p95_ms: 0.0,
         latency_p99_ms: 0.0,
         latency_max_ms: 0.0,
+        delivery_ratio: 0.0,
         relay_bindings: Vec::new(),
+        per_relay_metrics: Vec::new(),
         directory_records_inserted: 0,
         handshakes_attempted: 0,
         handshakes_completed: 0,
@@ -302,7 +343,13 @@ async fn run_three_hop_local(messages: usize) -> ThreeHopReport {
             report.latency_p95_ms = distribution.p95_ms;
             report.latency_p99_ms = distribution.p99_ms;
             report.latency_max_ms = distribution.max_ms;
+            report.delivery_ratio = if report.messages_sent == 0 {
+                0.0
+            } else {
+                report.messages_delivered as f64 / report.messages_sent as f64
+            };
             report.relay_bindings = execution.relay_bindings;
+            report.per_relay_metrics = execution.per_relay_metrics;
             report.directory_records_inserted = execution.directory_records_inserted;
             report.ok = handshakes.completed == 3
                 && handshakes.identity_pins_verified == 3
@@ -329,6 +376,7 @@ struct ThreeHopExecution {
     payload_bytes: usize,
     latencies_ms: Vec<f64>,
     relay_bindings: Vec<String>,
+    per_relay_metrics: Vec<RelayMetricsReport>,
     directory_records_inserted: usize,
 }
 
@@ -553,36 +601,66 @@ async fn execute_three_hop_local(
         }
     }
 
-    for (name, task) in [
-        ("relay-1", relay_1_task),
-        ("relay-2", relay_2_task),
-        ("relay-3", relay_3_task),
-    ] {
-        timeout(SCENARIO_TIMEOUT, task)
-            .await
-            .map_err(|_| format!("{name} did not finish"))?
-            .map_err(|error| format!("{name} task join: {error}"))??;
-    }
+    let relay_1_batch = await_relay_batch("relay-1", relay_1_task).await?;
+    let relay_2_batch = await_relay_batch("relay-2", relay_2_task).await?;
+    let relay_3_batch = await_relay_batch("relay-3", relay_3_task).await?;
+    let relay_bindings = vec![
+        relay_1_addr.to_string(),
+        relay_2_addr.to_string(),
+        relay_3_addr.to_string(),
+    ];
 
     Ok(ThreeHopExecution {
         packet_size_bytes,
         payload_bytes,
         latencies_ms,
-        relay_bindings: vec![
-            relay_1_addr.to_string(),
-            relay_2_addr.to_string(),
-            relay_3_addr.to_string(),
+        per_relay_metrics: vec![
+            RelayMetricsReport::from_snapshot(
+                "relay-1",
+                relay_bindings[0].clone(),
+                relay_1_batch.metrics,
+                relay_1_batch.ignored_ack_datagrams,
+            ),
+            RelayMetricsReport::from_snapshot(
+                "relay-2",
+                relay_bindings[1].clone(),
+                relay_2_batch.metrics,
+                relay_2_batch.ignored_ack_datagrams,
+            ),
+            RelayMetricsReport::from_snapshot(
+                "relay-3",
+                relay_bindings[2].clone(),
+                relay_3_batch.metrics,
+                relay_3_batch.ignored_ack_datagrams,
+            ),
         ],
+        relay_bindings,
         directory_records_inserted: directory.len(),
     })
+}
+
+struct RelayBatchResult {
+    metrics: UdpRelayMetrics,
+    ignored_ack_datagrams: usize,
+}
+
+async fn await_relay_batch(
+    relay_name: &'static str,
+    task: tokio::task::JoinHandle<Result<RelayBatchResult, String>>,
+) -> Result<RelayBatchResult, String> {
+    timeout(SCENARIO_TIMEOUT, task)
+        .await
+        .map_err(|_| format!("{relay_name} did not finish"))?
+        .map_err(|error| format!("{relay_name} task join: {error}"))?
 }
 
 async fn process_route_batch(
     mut relay: ChronosUdpRelay,
     messages: usize,
     relay_name: &'static str,
-) -> Result<(), String> {
+) -> Result<RelayBatchResult, String> {
     let mut processed_routes = 0usize;
+    let mut ignored_ack_datagrams = 0usize;
     while processed_routes < messages {
         match relay
             .relay_one_with_outcome()
@@ -590,10 +668,15 @@ async fn process_route_batch(
             .map_err(|error| format!("{relay_name} processing failed: {error:?}"))?
         {
             RelayOneOutcome::Processed(_) => processed_routes = processed_routes.saturating_add(1),
-            RelayOneOutcome::IgnoredAck(_) => {}
+            RelayOneOutcome::IgnoredAck(_) => {
+                ignored_ack_datagrams = ignored_ack_datagrams.saturating_add(1)
+            }
         }
     }
-    Ok(())
+    Ok(RelayBatchResult {
+        metrics: relay.metrics_snapshot(),
+        ignored_ack_datagrams,
+    })
 }
 
 async fn run_replay_negative(messages: usize) -> ReplayReport {
@@ -1084,7 +1167,9 @@ mod tests {
             latency_p95_ms: 0.0,
             latency_p99_ms: 0.0,
             latency_max_ms: 0.0,
+            delivery_ratio: 1.0,
             relay_bindings: Vec::new(),
+            per_relay_metrics: Vec::new(),
             directory_records_inserted: 3,
             handshakes_attempted: 3,
             handshakes_completed: 3,
@@ -1162,5 +1247,13 @@ mod tests {
         assert!(report.latency_p50_ms <= report.latency_p95_ms);
         assert!(report.latency_p95_ms <= report.latency_p99_ms);
         assert!(report.latency_p99_ms <= report.latency_max_ms);
+        assert_eq!(report.delivery_ratio, 1.0);
+        assert_eq!(report.per_relay_metrics.len(), 3);
+        assert!(
+            report
+                .per_relay_metrics
+                .iter()
+                .all(|metrics| metrics.route_packets_peeled == 3)
+        );
     }
 }

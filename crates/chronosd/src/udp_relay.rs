@@ -399,9 +399,14 @@ impl ChronosUdpRelay {
         Arc::clone(&self.metrics)
     }
 
+    /// Returns a point-in-time snapshot of actual relay processing counters.
+    pub fn metrics_snapshot(&self) -> UdpRelayMetrics {
+        *self.metrics.lock().expect("metrics lock")
+    }
+
     #[cfg(test)]
     pub fn metrics(&self) -> UdpRelayMetrics {
-        *self.metrics.lock().expect("metrics lock")
+        self.metrics_snapshot()
     }
 
     /// Adds a best-effort delay before each actual send. This does not emit cover

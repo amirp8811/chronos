@@ -39,10 +39,12 @@ jobs:
 
       - name: Run chronos-nettest scenarios
         run: |
-          cargo run -p chronos-nettest -- --scenario three-hop-local --out reports/three-hop-local.json
+          cargo run -p chronos-nettest -- --scenario three-hop-local --messages 10 --out reports/three-hop-local.json
           cargo run -p chronos-nettest -- --scenario replay-negative --out reports/replay-negative.json
           cargo run -p chronos-nettest -- --scenario directory-negative --out reports/directory-negative.json
           grep '"ok": true' reports/three-hop-local.json
+          grep '"messages_sent": 10' reports/three-hop-local.json
+          grep '"messages_delivered": 10' reports/three-hop-local.json
           grep '"ok": true' reports/replay-negative.json
           grep '"ok": true' reports/directory-negative.json
 
