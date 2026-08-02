@@ -37,6 +37,15 @@ jobs:
       - name: Locked dependency tests
         run: cargo test --workspace --locked
 
+      - name: Run chronos-nettest scenarios
+        run: |
+          cargo run -p chronos-nettest -- --scenario three-hop-local --out reports/three-hop-local.json
+          cargo run -p chronos-nettest -- --scenario replay-negative --out reports/replay-negative.json
+          cargo run -p chronos-nettest -- --scenario directory-negative --out reports/directory-negative.json
+          grep '"ok": true' reports/three-hop-local.json
+          grep '"ok": true' reports/replay-negative.json
+          grep '"ok": true' reports/directory-negative.json
+
       - name: no_std core subset
         run: cargo check -p chronos-core --no-default-features
 
